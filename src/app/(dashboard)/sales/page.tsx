@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   DollarSign, 
@@ -15,8 +15,25 @@ import {
   PhoneCall 
 } from 'lucide-react';
 
+// 1. Definisikan Tipe Data Piutang (Mencegah error 'item' di TypeScript)
+export type ReceivableStatus = 'OVERDUE' | 'DUE_SOON' | 'PAID';
+
+export type Receivable = {
+  id: string;
+  customerName: string;
+  phone: string;
+  invoiceDate: string;
+  dueDate: string;
+  totalAmount: number;
+  paidAmount: number;
+  remainingAmount: number;
+  status: ReceivableStatus;
+};
+
+const LOCAL_STORAGE_KEY = 'toserba_receivables_data';
+
 // Mock Data Piutang Pelanggan
-const MOCK_RECEIVABLES = [
+const MOCK_RECEIVABLES: Receivable[] = [
   {
     id: 'AR-2026-001',
     customerName: 'Toko Kelontong Bu Sri',
@@ -26,7 +43,7 @@ const MOCK_RECEIVABLES = [
     totalAmount: 1250000,
     paidAmount: 0,
     remainingAmount: 1250000,
-    status: 'OVERDUE', // OVERDUE, DUE_SOON, PAID
+    status: 'OVERDUE',
   },
   {
     id: 'AR-2026-002',
@@ -53,22 +70,63 @@ const MOCK_RECEIVABLES = [
 ];
 
 export default function SalesPage() {
+  // State untuk menangani Hydration pada Next.js
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Inisialisasi state dengan tipe Receivable[]
+  const [receivables, setReceivables] = useState<Receivable[]>(() => {
+    if (typeof window !== 'undefined') {
+      const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (savedData) {
+        try {
+          return JSON.parse(savedData) as Receivable[];
+        } catch (error) {
+          console.error('Gagal memuat data dari localStorage:', error);
+        }
+      }
+    }
+    return MOCK_RECEIVABLES;
+  });
+
   const [search, setSearch] = useState('');
-  const [selectedAr, setSelectedAr] = useState<typeof MOCK_RECEIVABLES[0] | null>(null);
+  const [selectedAr, setSelectedAr] = useState<Receivable | null>(null);
   const [isWaModalOpen, setIsWaModalOpen] = useState(false);
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [payAmount, setPayAmount] = useState<number>(0);
   const [isSuccessAlert, setIsSuccessAlert] = useState(false);
   const [alertMessage, setAlertMessage] = useState('');
 
-  const filteredAr = MOCK_RECEIVABLES.filter(
+  // Menandai bahwa komponen sudah terpasang di browser (client)
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  // Simpan data ke localStorage setiap kali state `receivables` berubah
+  useEffect(() => {
+    if (isMounted) {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(receivables));
+    }
+  }, [receivables, isMounted]);
+
+  // Kalkulasi Ringkasan Dinamis
+  const totalActiveAr = receivables
+    .filter((item) => item.status !== 'PAID')
+    .reduce((sum, item) => sum + item.remainingAmount, 0);
+
+  const totalOverdueAr = receivables
+    .filter((item) => item.status === 'OVERDUE')
+    .reduce((sum, item) => sum + item.remainingAmount, 0);
+
+  const totalPaidAr = receivables.reduce((sum, item) => sum + item.paidAmount, 0);
+
+  const filteredAr = receivables.filter(
     (item) =>
       item.customerName.toLowerCase().includes(search.toLowerCase()) ||
       item.id.toLowerCase().includes(search.toLowerCase()) ||
       item.phone.includes(search)
   );
 
-  const handleOpenWaModal = (ar: typeof MOCK_RECEIVABLES[0]) => {
+  const handleOpenWaModal = (ar: Receivable) => {
     setSelectedAr(ar);
     setIsWaModalOpen(true);
   };
@@ -80,18 +138,50 @@ export default function SalesPage() {
     setTimeout(() => setIsSuccessAlert(false), 3000);
   };
 
-  const handleOpenPayModal = (ar: typeof MOCK_RECEIVABLES[0]) => {
+  const handleOpenPayModal = (ar: Receivable) => {
     setSelectedAr(ar);
     setPayAmount(ar.remainingAmount);
     setIsPayModalOpen(true);
   };
 
   const handleSavePayment = () => {
+    if (!selectedAr) return;
+
+    setReceivables((dataLama) =>
+      dataLama.map((item) => {
+        if (item.id === selectedAr.id) {
+          const newPaidAmount = item.paidAmount + payAmount;
+          const newRemainingAmount = Math.max(0, item.totalAmount - newPaidAmount);
+          const newStatus: ReceivableStatus = newRemainingAmount === 0 ? 'PAID' : item.status;
+
+          return {
+            ...item,
+            paidAmount: newPaidAmount,
+            remainingAmount: newRemainingAmount,
+            status: newStatus,
+          };
+        }
+        return item;
+      })
+    );
+
     setIsPayModalOpen(false);
-    setAlertMessage(`Pembayaran piutang ${selectedAr?.customerName} berhasil diproses!`);
+    setAlertMessage(`Pembayaran piutang ${selectedAr.customerName} berhasil diproses!`);
     setIsSuccessAlert(true);
     setTimeout(() => setIsSuccessAlert(false), 3000);
   };
+
+  const handleResetData = () => {
+    if (confirm('Apakah Anda yakin ingin mengembalikan data ke posisi awal?')) {
+      setReceivables(MOCK_RECEIVABLES);
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
+    }
+  };
+
+  // Cegah render sebelum mounted di client agar tidak terjadi error hydration pada Next.js
+  if (!isMounted) {
+    return null;
+  }
 
   return (
     <div className="space-y-6 relative z-10">
@@ -103,23 +193,39 @@ export default function SalesPage() {
             Manajemen Buku Bon Pelanggan, Pembayaran Piutang, & Otomasi Pengingat WhatsApp
           </p>
         </div>
+        <button
+          onClick={handleResetData}
+          className="text-xs text-slate-400 hover:text-rose-500 underline self-start sm:self-auto transition-colors"
+        >
+          Reset Data LocalStorage
+        </button>
       </div>
 
       {/* Ringkasan Kartu Piutang */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <div className="glass-card-light rounded-2xl p-5 border-l-4 border-l-indigo-500">
           <p className="text-xs font-semibold text-slate-500">Total Piutang Aktif (AR)</p>
-          <p className="text-2xl font-black text-indigo-600 mt-1">Rp 1.900.000</p>
-          <p className="text-[11px] text-slate-400 mt-1">2 Pelanggan memiliki sisa bon</p>
+          <p className="text-2xl font-black text-indigo-600 mt-1">
+            Rp {totalActiveAr.toLocaleString('id-ID')}
+          </p>
+          <p className="text-[11px] text-slate-400 mt-1">
+            {receivables.filter((i) => i.status !== 'PAID').length} Pelanggan memiliki sisa bon
+          </p>
         </div>
         <div className="glass-card-light rounded-2xl p-5 border-l-4 border-l-rose-500">
           <p className="text-xs font-semibold text-slate-500">Piutang Jatuh Tempo (Overdue)</p>
-          <p className="text-2xl font-black text-rose-600 mt-1">Rp 1.250.000</p>
-          <p className="text-[11px] text-slate-400 mt-1">1 Nota melewati batas pembayaran</p>
+          <p className="text-2xl font-black text-rose-600 mt-1">
+            Rp {totalOverdueAr.toLocaleString('id-ID')}
+          </p>
+          <p className="text-[11px] text-slate-400 mt-1">
+            {receivables.filter((i) => i.status === 'OVERDUE').length} Nota melewati batas pembayaran
+          </p>
         </div>
         <div className="glass-card-light rounded-2xl p-5 border-l-4 border-l-emerald-500">
-          <p className="text-xs font-semibold text-slate-500">Piutang Terbayar Bulan Ini</p>
-          <p className="text-2xl font-black text-emerald-600 mt-1">Rp 2.100.000</p>
+          <p className="text-xs font-semibold text-slate-500">Total Piutang Terbayar</p>
+          <p className="text-2xl font-black text-emerald-600 mt-1">
+            Rp {totalPaidAr.toLocaleString('id-ID')}
+          </p>
           <p className="text-[11px] text-slate-400 mt-1">Tercatat di Jurnal Penerimaan Kas</p>
         </div>
       </div>
