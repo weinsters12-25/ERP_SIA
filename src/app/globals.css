@@ -1,26 +1,126 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* =========================================================================
+   TOSERBA ERP — Design Tokens
+   Konsep: "Gudang Premium" — hangat, dipercaya, hasil bumi.
+   Warna dasar hangat (ivory/pasir) + hijau pinus tua + aksen kuningan/gold,
+   bukan palet SaaS biru-abu yang generik.
+   ========================================================================= */
+
+@theme {
+  /* Warna Inti */
+  --color-ink: #1C1917;              /* Teks utama, hampir hitam-hangat */
+  --color-ink-soft: #57534E;         /* Teks sekunder */
+  --color-canvas: #FAF8F3;           /* Latar utama — ivory hangat */
+  --color-canvas-sunk: #F2EEE4;      /* Latar sedikit lebih gelap (input, track) */
+  --color-surface: #FFFFFE;          /* Kartu putih hangat */
+
+  --color-pine: #0B4D3A;             /* Hijau pinus tua — warna brand utama */
+  --color-pine-light: #14704F;
+  --color-pine-tint: #E6F0EA;
+
+  --color-gold: #B8912F;             /* Kuningan/gold — aksen premium */
+  --color-gold-light: #D9B45C;
+  --color-gold-tint: #FBF3DE;
+
+  --color-clay: #B4552E;             /* Terakota — pengeluaran / peringatan */
+  --color-clay-tint: #FBEAE1;
+
+  --color-rust: #A23B32;             /* Merah bata — kritis / jatuh tempo */
+  --color-rust-tint: #FBE9E7;
+
+  --color-border: #E7E1D3;           /* Border hangat, bukan abu-biru */
+  --color-border-strong: #D8CFB8;
+
+  /* Tetap sediakan alias lama supaya kelas existing tidak patah */
+  --color-brand-primary: #0B4D3A;
+  --color-brand-accent: #14704F;
+  --color-brand-dark: #FAF8F3;
+  --color-brand-surface: #FFFFFE;
+  --color-brand-border: #E7E1D3;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  background-image:
+    radial-gradient(circle at 100% 0%, rgba(184, 145, 47, 0.06), transparent 40%),
+    radial-gradient(circle at 0% 100%, rgba(11, 77, 58, 0.05), transparent 45%);
+  background-attachment: fixed;
+}
+
+.font-display {
+  font-family: var(--font-fraunces), Georgia, serif;
+  font-feature-settings: "ss01" 1;
+}
+
+/* =========================================================================
+   Kartu — dipakai di seluruh modul (dashboard, POS, inventory, finance, dll)
+   ========================================================================= */
+.glass-card-light {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 1.1rem;
+  box-shadow: 0 1px 2px 0 rgba(28, 25, 23, 0.04), 0 1px 1px 0 rgba(28, 25, 23, 0.03);
+  transition: box-shadow 220ms ease, border-color 220ms ease, transform 220ms ease;
+}
+
+.glass-card-light:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: 0 12px 24px -8px rgba(28, 25, 23, 0.10), 0 4px 8px -4px rgba(28, 25, 23, 0.05);
+}
+
+/* Kartu dengan aksen tepi kiri bergradasi tipis (dipakai untuk ringkasan) */
+.accent-card {
+  position: relative;
+  overflow: hidden;
+}
+.accent-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--accent-from, var(--color-pine)), var(--accent-to, var(--color-pine-light)));
+}
+
+/* Garis pemisah halus bertekstur titik, untuk keperluan dekoratif minimal */
+.hairline {
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--color-border) 0 6px, transparent 6px 10px);
+}
+
+/* Scrollbar Kustom, hangat */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-canvas-sunk);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gold);
+}
+
+/* Fokus keyboard tetap terlihat jelas (aksesibilitas) */
+:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
+
+/* Hormati preferensi reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
