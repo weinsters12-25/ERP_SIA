@@ -7,7 +7,8 @@ export interface CartItem {
   unit: string;
   price: number;
   qty: number;
-  expiredDate?: string;
+  /** Stok layak jual saat item dimasukkan — dipakai sebagai batas qty di keranjang. */
+  stock: number;
 }
 
 interface PosStore {
@@ -21,32 +22,40 @@ interface PosStore {
 
 export const usePosStore = create<PosStore>((set, get) => ({
   cart: [],
-  addToCart: (product) => {
-    const currentCart = get().cart;
-    const existingIndex = currentCart.findIndex((item) => item.id === product.id);
 
-    if (existingIndex > -1) {
-      const updatedCart = [...currentCart];
-      updatedCart[existingIndex].qty += 1;
-      set({ cart: updatedCart });
+  addToCart: (product) => {
+    const cart = get().cart;
+    const existing = cart.find((item) => item.id === product.id);
+
+    if (existing) {
+      if (existing.qty >= product.stock) return; // jangan melebihi stok
+      set({
+        cart: cart.map((item) =>
+          item.id === product.id ? { ...item, qty: item.qty + 1, stock: product.stock } : item
+        ),
+      });
     } else {
-      set({ cart: [...currentCart, { ...product, qty: 1 }] });
+      if (product.stock <= 0) return;
+      set({ cart: [...cart, { ...product, qty: 1 }] });
     }
   },
-  removeFromCart: (id) => {
-    set({ cart: get().cart.filter((item) => item.id !== id) });
-  },
+
+  removeFromCart: (id) => set({ cart: get().cart.filter((item) => item.id !== id) }),
+
   updateQty: (id, qty) => {
     if (qty <= 0) {
       get().removeFromCart(id);
       return;
     }
     set({
-      cart: get().cart.map((item) => (item.id === item.id ? { ...item, qty } : item)),
+      cart: get().cart.map((item) =>
+        // BUG LAMA: `item.id === item.id` selalu true sehingga SEMUA item ikut berubah
+        item.id === id ? { ...item, qty: Math.min(qty, item.stock) } : item
+      ),
     });
   },
+
   clearCart: () => set({ cart: [] }),
-  getTotalPrice: () => {
-    return get().cart.reduce((total, item) => total + item.price * item.qty, 0);
-  },
+
+  getTotalPrice: () => get().cart.reduce((total, item) => total + item.price * item.qty, 0),
 }));
