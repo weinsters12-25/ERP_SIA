@@ -58,123 +58,169 @@ interface Receipt {
 }
 
 /**
- * Struk untuk printer thermal 80mm. Disembunyikan di layar, dan HANYA elemen
+ * Struk belanja versi lucu & berwarna. Disembunyikan di layar, dan HANYA elemen
  * ini yang tercetak saat window.print() dipanggil.
+ * Ukuran menyesuaikan kertas: di printer thermal 80mm memenuhi lebar kertas,
+ * di kertas A4 lebarnya maksimal 110mm supaya mudah dibaca.
  */
 function ReceiptPrint({ receipt }: { receipt: Receipt }) {
   const n = (v: number) => v.toLocaleString('id-ID');
   const totalQty = receipt.items.reduce((s, i) => s + i.qty, 0);
+  const isCash = receipt.method === 'CASH';
 
   return (
     <div id="struk-print">
       <style>{`
         #struk-print { display: none; }
-        @page { size: 80mm auto; margin: 0; }
+        @page { margin: 5mm; }
         @media print {
           html, body { background: #fff !important; background-image: none !important; height: auto !important; }
           body > *:not(#struk-print) { display: none !important; }
           #struk-print {
             display: block !important;
-            width: 72mm;
+            width: 100%;
+            max-width: 110mm;
             margin: 0 auto;
-            padding: 4mm 2mm;
-            color: #000;
+            color: #1c1917;
             background: #fff;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 12px;
-            line-height: 1.4;
+            font-family: var(--font-geist-mono), 'Courier New', Courier, monospace;
+            font-size: 14px;
+            line-height: 1.45;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
           }
-          #struk-print .st-center { text-align: center; }
-          #struk-print .st-bold { font-weight: 700; }
-          #struk-print .st-title { font-size: 16px; letter-spacing: 1px; }
-          #struk-print .st-small { font-size: 10px; }
-          #struk-print .st-line { border-top: 1px dashed #000; margin: 6px 0; }
-          #struk-print .st-row { display: flex; justify-content: space-between; gap: 8px; }
-          #struk-print .st-item { margin-bottom: 4px; word-break: break-word; }
-          #struk-print .st-big { font-size: 14px; }
+          #struk-print .st-card { border: 2.5px dashed #0b4d3a; border-radius: 18px; padding: 16px 14px 18px; }
+          #struk-print .st-head { text-align: center; }
+          #struk-print .st-emoji { font-size: 22px; letter-spacing: 6px; }
+          #struk-print .st-store {
+            font-family: var(--font-fraunces), Georgia, serif;
+            font-size: 30px; font-weight: 700; letter-spacing: 3px; line-height: 1.1; color: #0b4d3a;
+          }
+          #struk-print .st-tagline { font-size: 12px; font-style: italic; font-weight: 700; color: #b8912f; }
+          #struk-print .st-addr { font-size: 11px; color: #57534e; }
+          #struk-print .st-badge {
+            display: inline-block; margin-top: 8px; padding: 3px 14px; border-radius: 999px;
+            background: #0b4d3a; color: #fff; font-size: 12px; font-weight: 700; letter-spacing: 1px;
+          }
+          #struk-print .st-wave { margin: 12px 0; border-top: 2px dotted #b8912f; }
+          #struk-print .st-row { display: flex; justify-content: space-between; gap: 10px; }
+          #struk-print .st-meta { font-size: 12px; }
+          #struk-print .st-meta .st-k { color: #57534e; }
+          #struk-print .st-item { margin: 9px 0; break-inside: avoid; }
+          #struk-print .st-item-top { display: flex; gap: 8px; align-items: flex-start; font-weight: 700; }
+          #struk-print .st-qty {
+            flex: none; min-width: 36px; text-align: center; padding: 0 6px; border-radius: 8px;
+            background: #fbf3de; border: 1.5px solid #b8912f; font-size: 12px;
+          }
+          #struk-print .st-name { flex: 1; word-break: break-word; }
+          #struk-print .st-item-sub { display: flex; justify-content: space-between; padding-left: 44px; font-size: 12px; color: #57534e; }
+          #struk-print .st-count { text-align: right; font-size: 12px; color: #57534e; }
+          #struk-print .st-total { margin-top: 10px; padding: 10px 12px; border-radius: 14px; background: #e6f0ea; border: 1.5px solid #0b4d3a; }
+          #struk-print .st-total-main { display: flex; justify-content: space-between; align-items: baseline; font-size: 20px; font-weight: 800; color: #0b4d3a; }
+          #struk-print .st-pay { margin-top: 4px; display: flex; justify-content: space-between; }
+          #struk-print .st-change { font-weight: 800; color: #0b4d3a; }
+          #struk-print .st-stamp {
+            width: fit-content; margin: 12px auto 0; padding: 4px 14px; text-align: center;
+            border: 3px double #a23b32; border-radius: 10px; color: #a23b32; font-weight: 800; transform: rotate(-3deg);
+          }
+          #struk-print .st-foot { margin-top: 14px; text-align: center; }
+          #struk-print .st-thanks { font-family: var(--font-fraunces), Georgia, serif; font-size: 19px; font-weight: 700; color: #0b4d3a; }
+          #struk-print .st-fun { font-size: 12px; color: #b8912f; font-weight: 700; }
+          #struk-print .st-small { font-size: 10.5px; color: #57534e; }
+          #struk-print .st-hearts { margin-top: 6px; font-size: 14px; letter-spacing: 8px; color: #b8912f; }
         }
       `}</style>
 
-      <div className="st-center st-bold st-title">{STORE_NAME}</div>
-      <div className="st-center st-small">{STORE_TAGLINE}</div>
-      <div className="st-center st-small">{STORE_ADDRESS}</div>
-      <div className="st-center st-small">{STORE_PHONE}</div>
-
-      <div className="st-line" />
-
-      <div className="st-row st-small">
-        <span>No</span>
-        <span>{receipt.invoiceNo}</span>
-      </div>
-      <div className="st-row st-small">
-        <span>Tanggal</span>
-        <span>{receipt.date}</span>
-      </div>
-      <div className="st-row st-small">
-        <span>Kasir</span>
-        <span>{CASHIER_NAME}</span>
-      </div>
-      {receipt.customerName && (
-        <div className="st-row st-small">
-          <span>Pelanggan</span>
-          <span>{receipt.customerName}</span>
+      <div className="st-card">
+        <div className="st-head">
+          <div className="st-emoji">🌿🛒🌿</div>
+          <div className="st-store">{STORE_NAME}</div>
+          <div className="st-tagline">{STORE_TAGLINE}</div>
+          <div className="st-addr">{STORE_ADDRESS}</div>
+          <div className="st-addr">{STORE_PHONE}</div>
+          <div className="st-badge">✨ STRUK BELANJA ✨</div>
         </div>
-      )}
 
-      <div className="st-line" />
+        <div className="st-wave" />
 
-      {receipt.items.map((it, idx) => (
-        <div key={idx} className="st-item">
-          <div>{it.name}</div>
+        <div className="st-meta">
           <div className="st-row">
-            <span>
-              {it.qty} {it.unit} x {n(it.price)}
-            </span>
-            <span>{n(it.qty * it.price)}</span>
+            <span className="st-k">No. Nota</span>
+            <span>{receipt.invoiceNo}</span>
           </div>
-        </div>
-      ))}
-
-      <div className="st-line" />
-
-      <div className="st-row st-small">
-        <span>Jumlah item</span>
-        <span>{totalQty}</span>
-      </div>
-      <div className="st-row st-bold st-big">
-        <span>TOTAL</span>
-        <span>Rp {n(receipt.total)}</span>
-      </div>
-
-      {receipt.method === 'CASH' ? (
-        <>
           <div className="st-row">
-            <span>Tunai</span>
-            <span>Rp {n(receipt.received)}</span>
+            <span className="st-k">Tanggal</span>
+            <span>{receipt.date}</span>
           </div>
-          <div className="st-row st-bold">
-            <span>Kembali</span>
-            <span>Rp {n(receipt.change)}</span>
+          <div className="st-row">
+            <span className="st-k">Kasir</span>
+            <span>{CASHIER_NAME}</span>
           </div>
-        </>
-      ) : (
-        <>
-          <div className="st-row st-bold">
-            <span>BELUM LUNAS (BON)</span>
-          </div>
-          {receipt.dueDate && (
+          {receipt.customerName && (
             <div className="st-row">
-              <span>Jatuh tempo</span>
-              <span>{receipt.dueDate}</span>
+              <span className="st-k">Pelanggan</span>
+              <span>{receipt.customerName}</span>
             </div>
           )}
-        </>
-      )}
+        </div>
 
-      <div className="st-line" />
+        <div className="st-wave" />
 
-      <div className="st-center">Terima kasih sudah berbelanja!</div>
-      <div className="st-center st-small">Barang yang sudah dibeli tidak dapat ditukar</div>
+        {receipt.items.map((it, idx) => (
+          <div key={idx} className="st-item">
+            <div className="st-item-top">
+              <span className="st-qty">{it.qty}×</span>
+              <span className="st-name">{it.name}</span>
+            </div>
+            <div className="st-item-sub">
+              <span>
+                @ {n(it.price)} / {it.unit}
+              </span>
+              <span>Rp {n(it.qty * it.price)}</span>
+            </div>
+          </div>
+        ))}
+
+        <div className="st-count">🛍️ {totalQty} barang dibeli</div>
+
+        <div className="st-total">
+          <div className="st-total-main">
+            <span>TOTAL</span>
+            <span>Rp {n(receipt.total)}</span>
+          </div>
+          {isCash ? (
+            <>
+              <div className="st-pay">
+                <span>Tunai</span>
+                <span>Rp {n(receipt.received)}</span>
+              </div>
+              <div className="st-pay st-change">
+                <span>Kembalian 💚</span>
+                <span>Rp {n(receipt.change)}</span>
+              </div>
+            </>
+          ) : (
+            receipt.dueDate && (
+              <div className="st-pay">
+                <span>Jatuh tempo</span>
+                <span>{receipt.dueDate}</span>
+              </div>
+            )
+          )}
+        </div>
+
+        {!isCash && <div className="st-stamp">📒 BON · BELUM LUNAS</div>}
+
+        <div className="st-wave" />
+
+        <div className="st-foot">
+          <div className="st-thanks">Terima kasih, Kak! 💚</div>
+          <div className="st-fun">Belanja hemat, hidup sehat ✨</div>
+          <div className="st-fun">Sampai jumpa lagi ya! 👋</div>
+          <div className="st-hearts">♡ ♡ ♡</div>
+          <div className="st-small">Barang yang sudah dibeli tidak dapat ditukar</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -200,34 +246,16 @@ export default function PosPage() {
   const [error, setError] = useState('');
   const [receipt, setReceipt] = useState<Receipt | null>(null);
 
-  // Cetak otomatis setelah transaksi (pilihan disimpan di browser)
-  const [autoPrint, setAutoPrint] = useState(false);
+  // Struk selalu dicetak otomatis setelah transaksi selesai
   const printNextRef = useRef(false);
   const receiptTimeRef = useRef(0); // kapan struk muncul (untuk mencegah Enter ganda)
-
-  useEffect(() => {
-    try {
-      setAutoPrint(localStorage.getItem('pos-auto-print') === '1');
-    } catch {
-      /* abaikan */
-    }
-  }, []);
-
-  const toggleAutoPrint = (v: boolean) => {
-    setAutoPrint(v);
-    try {
-      localStorage.setItem('pos-auto-print', v ? '1' : '0');
-    } catch {
-      /* abaikan */
-    }
-  };
 
   const printReceipt = () => window.print();
 
   useEffect(() => {
     if (receipt && printNextRef.current) {
       printNextRef.current = false;
-      const t = setTimeout(() => window.print(), 200);
+      const t = setTimeout(() => window.print(), 300);
       return () => clearTimeout(t);
     }
   }, [receipt]);
@@ -310,7 +338,7 @@ export default function PosPage() {
     const due = new Date(now);
     due.setDate(due.getDate() + dueDays);
 
-    printNextRef.current = autoPrint;
+    printNextRef.current = true;
     receiptTimeRef.current = Date.now();
     setReceipt({
       invoiceNo: result.invoiceNo,
@@ -672,16 +700,6 @@ export default function PosPage() {
                   <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {error}
                 </p>
               )}
-
-              <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-[var(--color-ink-soft)]">
-                <input
-                  type="checkbox"
-                  checked={autoPrint}
-                  onChange={(e) => toggleAutoPrint(e.target.checked)}
-                  className="h-4 w-4 accent-[var(--color-pine)]"
-                />
-                Cetak struk otomatis setelah transaksi
-              </label>
 
               <div className="flex gap-2 pt-2">
                 <button
