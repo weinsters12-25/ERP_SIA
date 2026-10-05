@@ -67,6 +67,21 @@ export type SaleResult =
   | { ok: true; invoiceNo: string; total: number; change: number; method: 'CASH' | 'CREDIT' }
   | { ok: false; error: string };
 
+export type ActionResult = { ok: true; message: string } | { ok: false; error: string };
+
+export interface NewProductInput {
+  sku: string;
+  name: string;
+  category: string;
+  unit: string;
+  price: number;
+  minStock: number;
+  initialQty: number; // 0 = tanpa stok awal
+  expiredDate: string; // wajib bila initialQty > 0
+}
+
+export type ProductPatch = Partial<Pick<Product, 'name' | 'category' | 'unit' | 'price' | 'minStock'>>;
+
 /* =========================================================================
    HELPER TANGGAL & STOK
    ========================================================================= */
@@ -172,9 +187,18 @@ interface ErpState {
   invoiceSeq: number;
   journalSeq: number;
   arSeq: number;
+  batchSeq: number;
 
   /** Proses penjualan POS: potong stok FEFO, buat jurnal, (opsional) buat piutang. */
   sellItems: (lines: SaleLine[], payment: PaymentInput) => SaleResult;
+
+  /** Inventory */
+  addProduct: (input: NewProductInput) => ActionResult;
+  updateProduct: (id: string, patch: ProductPatch) => ActionResult;
+  addBatch: (productId: string, qty: number, expiredDate: string) => ActionResult;
+  /** Stock opname: samakan stok sistem dengan stok fisik, buat jurnal penyesuaian bila ada selisih. */
+  adjustStock: (productId: string, actualQty: number, reason: string) => ActionResult;
+
   resetDemoData: () => void;
 }
 
@@ -186,7 +210,19 @@ const initialData = () => ({
   invoiceSeq: 1093,
   journalSeq: 90,
   arSeq: 4,
+  batchSeq: 10,
 });
+
+const makeBatchNo = (seq: number) => `BATCH-${new Date().getFullYear()}-${String(seq).padStart(2, '0')}`;
+
+const makeJournal = (seq: number, data: Omit<Journal, 'id' | 'date'>): Journal => {
+  const now = new Date();
+  return {
+    id: `JRN-${now.getFullYear()}-${String(seq).padStart(3, '0')}`,
+    date: toDateTimeStr(now),
+    ...data,
+  };
+};
 
 export const useErpStore = create<ErpState>()(
   persist(
@@ -294,6 +330,124 @@ export const useErpStore = create<ErpState>()(
           total,
           change: payment.method === 'CASH' ? payment.received - total : 0,
           method: payment.method,
+        };
+      },
+
+      addProduct: (input) => {
+        const state = get();
+        const sku = input.sku.trim().toUpperCase();
+
+        if (!sku || !input.name.trim()) return { ok: false, error: 'SKU dan nama barang wajib diisi.' };
+        if (state.products.some((p) => p.sku === sku)) return { ok: false, error: `SKU ${sku} sudah dipakai barang lain.` };
+        if (!(input.price > 0)) return { ok: false, error: 'Harga jual harus lebih dari 0.' };
+        if (input.initialQty > 0 && !input.expiredDate) {
+          return { ok: false, error: 'Tanggal kadaluarsa wajib diisi untuk stok awal.' };
+        }
+
+        const hasStock = input.initialQty > 0;
+        const product: Product = {
+          id: String(Date.now()),
+          sku,
+          name: input.name.trim(),
+          category: input.category.trim() || 'Lainnya',
+          unit: input.unit.trim() || 'Pcs',
+          price: input.price,
+          minStock: Math.max(0, input.minStock || 0),
+          batches: hasStock
+            ? [{ batchNo: makeBatchNo(state.batchSeq), qty: input.initialQty, expiredDate: input.expiredDate }]
+            : [],
+        };
+
+        set({
+          products: [...state.products, product],
+          batchSeq: hasStock ? state.batchSeq + 1 : state.batchSeq,
+        });
+        return { ok: true, message: `Barang "${product.name}" berhasil ditambahkan.` };
+      },
+
+      updateProduct: (id, patch) => {
+        const state = get();
+        const product = state.products.find((p) => p.id === id);
+        if (!product) return { ok: false, error: 'Barang tidak ditemukan.' };
+        if (patch.name !== undefined && !patch.name.trim()) return { ok: false, error: 'Nama barang tidak boleh kosong.' };
+        if (patch.price !== undefined && !(patch.price > 0)) return { ok: false, error: 'Harga jual harus lebih dari 0.' };
+
+        set({ products: state.products.map((p) => (p.id === id ? { ...p, ...patch } : p)) });
+        return { ok: true, message: `Data "${product.name}" diperbarui.` };
+      },
+
+      addBatch: (productId, qty, expiredDate) => {
+        const state = get();
+        const product = state.products.find((p) => p.id === productId);
+        if (!product) return { ok: false, error: 'Barang tidak ditemukan.' };
+        if (!(qty > 0)) return { ok: false, error: 'Jumlah harus lebih dari 0.' };
+        if (!expiredDate) return { ok: false, error: 'Tanggal kadaluarsa wajib diisi.' };
+
+        const batchNo = makeBatchNo(state.batchSeq);
+        set({
+          products: state.products.map((p) =>
+            p.id === productId ? { ...p, batches: [...p.batches, { batchNo, qty, expiredDate }] } : p
+          ),
+          batchSeq: state.batchSeq + 1,
+        });
+        return { ok: true, message: `${batchNo} (${qty} ${product.unit}) ditambahkan ke ${product.name}.` };
+      },
+
+      adjustStock: (productId, actualQty, reason) => {
+        const state = get();
+        const product = state.products.find((p) => p.id === productId);
+        if (!product) return { ok: false, error: 'Barang tidak ditemukan.' };
+        if (!Number.isFinite(actualQty) || actualQty < 0) return { ok: false, error: 'Stok fisik tidak valid.' };
+
+        const batches = product.batches.map((b) => ({ ...b }));
+        const current = batches.reduce((s, b) => s + b.qty, 0);
+        const diff = actualQty - current;
+
+        if (diff === 0) return { ok: true, message: 'Stok fisik sama dengan sistem. Tidak ada penyesuaian.' };
+
+        let batchSeq = state.batchSeq;
+
+        if (diff < 0) {
+          // Kurangi dari batch dengan expired paling awal (batch kadaluarsa terpotong lebih dulu)
+          let need = -diff;
+          for (const b of [...batches].sort((a, c) => a.expiredDate.localeCompare(c.expiredDate))) {
+            const take = Math.min(b.qty, need);
+            b.qty -= take;
+            need -= take;
+            if (need === 0) break;
+          }
+        } else if (batches.length > 0) {
+          // Lebih banyak dari sistem: tambahkan ke batch dengan expired paling akhir
+          const latest = [...batches].sort((a, c) => c.expiredDate.localeCompare(a.expiredDate))[0];
+          latest.qty += diff;
+        } else {
+          const d = new Date();
+          d.setDate(d.getDate() + 180);
+          batches.push({ batchNo: makeBatchNo(batchSeq), qty: diff, expiredDate: toDateStr(d) });
+          batchSeq += 1;
+        }
+
+        // Nilai sementara memakai harga jual (harga beli ditambahkan di Tahap 3)
+        const journal = makeJournal(state.journalSeq, {
+          description: `Stock opname ${product.name}: ${diff > 0 ? '+' : ''}${diff} ${product.unit} (${reason})`,
+          debitAccount: diff < 0 ? '502 - Beban Selisih Stok' : '105 - Persediaan Barang',
+          creditAccount: diff < 0 ? '105 - Persediaan Barang' : '502 - Beban Selisih Stok',
+          amount: Math.abs(diff) * product.price,
+          type: 'ADJUSTMENT',
+        });
+
+        set({
+          products: state.products.map((p) =>
+            p.id === productId ? { ...p, batches: batches.filter((b) => b.qty > 0) } : p
+          ),
+          journals: [journal, ...state.journals],
+          journalSeq: state.journalSeq + 1,
+          batchSeq,
+        });
+
+        return {
+          ok: true,
+          message: `Opname ${product.name} disimpan: selisih ${diff > 0 ? '+' : ''}${diff} ${product.unit}. Jurnal ${journal.id} dibuat.`,
         };
       },
 

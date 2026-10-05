@@ -1,223 +1,502 @@
 'use client';
 
-import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Package, 
-  Search, 
-  AlertTriangle, 
-  Calendar, 
-  Edit3, 
-  Plus, 
-  Clock, 
-  CheckCircle2, 
-  X 
+import { useMemo, useState, type ReactNode } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  AlertCircle,
+  Calendar,
+  CheckCircle2,
+  Edit3,
+  Package,
+  PackagePlus,
+  Pencil,
+  Plus,
+  Search,
+  X,
 } from 'lucide-react';
+import {
+  useErpStore,
+  useHydrated,
+  getTotalStock,
+  getDaysLeft,
+  getExpiryStatus,
+  type Product,
+  type ExpiryStatus,
+} from '@/stores/useErpStore';
 
-// Mock Data Inventaris Sembako dengan Batch FEFO
-const MOCK_INVENTORY = [
-  {
-    id: '1',
-    sku: 'BRS-001',
-    name: 'Beras Setra Ramos 5kg',
-    category: 'Beras & Biji',
-    totalStock: 45,
-    unit: 'Pouch',
-    minStock: 10,
-    batches: [
-      { batchNo: 'BATCH-2026-01', qty: 15, expiredDate: '2026-10-15', status: 'kritis' },
-      { batchNo: 'BATCH-2026-05', qty: 30, expiredDate: '2027-05-20', status: 'aman' },
-    ],
-  },
-  {
-    id: '2',
-    sku: 'MYK-001',
-    name: 'Minyak Goreng Bimoli 2L',
-    category: 'Minyak & Bumbu',
-    totalStock: 8,
-    unit: 'Pouch',
-    minStock: 15,
-    batches: [
-      { batchNo: 'BATCH-2026-03', qty: 8, expiredDate: '2026-11-01', status: 'peringatan' },
-    ],
-  },
-  {
-    id: '3',
-    sku: 'TLR-001',
-    name: 'Telur Ayam Negeri (Peti)',
-    category: 'Sembako Basah',
-    totalStock: 25,
-    unit: 'Kg',
-    minStock: 10,
-    batches: [
-      { batchNo: 'BATCH-2026-09', qty: 25, expiredDate: '2026-10-05', status: 'kritis' },
-    ],
-  },
-  {
-    id: '4',
-    sku: 'GLA-001',
-    name: 'Gula Pasir Gulaku 1kg',
-    category: 'Sembako',
-    totalStock: 120,
-    unit: 'Kg',
-    minStock: 20,
-    batches: [
-      { batchNo: 'BATCH-2026-02', qty: 120, expiredDate: '2028-01-10', status: 'aman' },
-    ],
-  },
-];
+const rp = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
 
-export default function InventoryPage() {
-  const [search, setSearch] = useState('');
-  const [selectedProduct, setSelectedProduct] = useState<typeof MOCK_INVENTORY[0] | null>(null);
-  const [isOpnameOpen, setIsOpnameOpen] = useState(false);
-  const [opnameQty, setOpnameQty] = useState<number>(0);
-  const [opnameReason, setOpnameReason] = useState('Penyusutan Wajar');
-  const [isSuccessAlert, setIsSuccessAlert] = useState(false);
+const inputCls =
+  'w-full rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-canvas)] px-3 py-2 text-sm focus:border-[var(--color-gold)] focus:outline-none disabled:opacity-60';
 
-  const filteredInventory = MOCK_INVENTORY.filter((item) =>
-    item.name.toLowerCase().includes(search.toLowerCase()) ||
-    item.sku.toLowerCase().includes(search.toLowerCase()) ||
-    item.category.toLowerCase().includes(search.toLowerCase())
+const batchStyle: Record<ExpiryStatus, string> = {
+  expired: 'bg-[var(--color-rust)] text-white border-transparent',
+  kritis: 'bg-[var(--color-rust-tint)] text-[var(--color-rust)] border-[var(--color-rust)]/30',
+  peringatan: 'bg-[var(--color-gold-tint)] text-[var(--color-gold)] border-[var(--color-gold)]/30',
+  aman: 'bg-[var(--color-pine-tint)] text-[var(--color-pine)] border-[var(--color-pine)]/20',
+};
+
+type Modal =
+  | null
+  | { type: 'product'; product?: Product }
+  | { type: 'batch'; product: Product }
+  | { type: 'opname'; product: Product };
+
+type Filter = 'all' | 'low' | 'risk';
+
+/* ---------- komponen kecil ---------- */
+
+function ModalShell({ title, subtitle, onClose, children }: { title: string; subtitle?: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-ink)]/40 p-4 backdrop-blur-sm"
+    >
+      <motion.div
+        initial={{ scale: 0.96 }}
+        animate={{ scale: 1 }}
+        exit={{ scale: 0.96 }}
+        className="relative max-h-[90vh] w-full max-w-md space-y-4 overflow-y-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-xl"
+      >
+        <button aria-label="Tutup" onClick={onClose} className="absolute right-4 top-4 p-1 text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]">
+          <X className="h-4 w-4" />
+        </button>
+        <div>
+          <h3 className="font-display text-lg font-semibold">{title}</h3>
+          {subtitle && <p className="mt-0.5 text-xs text-[var(--color-ink-soft)]">{subtitle}</p>}
+        </div>
+        {children}
+      </motion.div>
+    </motion.div>
   );
+}
 
-  const handleOpenOpname = (product: typeof MOCK_INVENTORY[0]) => {
-    setSelectedProduct(product);
-    setOpnameQty(product.totalStock);
-    setIsOpnameOpen(true);
-  };
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-semibold text-[var(--color-ink-soft)]">{label}</label>
+      {children}
+      {hint && <p className="mt-1 text-[11px] text-[var(--color-ink-soft)]">{hint}</p>}
+    </div>
+  );
+}
 
-  const handleSaveOpname = () => {
-    setIsOpnameOpen(false);
-    setIsSuccessAlert(true);
-    setTimeout(() => setIsSuccessAlert(false), 2500);
+function ErrorBox({ text }: { text: string }) {
+  if (!text) return null;
+  return (
+    <p className="flex items-start gap-2 rounded-lg bg-[var(--color-rust-tint)] px-3 py-2 text-xs font-semibold text-[var(--color-rust)]">
+      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {text}
+    </p>
+  );
+}
+
+function FormActions({ onClose, submitLabel, onSubmit }: { onClose: () => void; submitLabel: string; onSubmit: () => void }) {
+  return (
+    <div className="flex gap-2 pt-2">
+      <button onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border)] py-2.5 text-sm font-semibold text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas-sunk)]">
+        Batal
+      </button>
+      <button onClick={onSubmit} className="flex-1 rounded-xl bg-[var(--color-pine)] py-2.5 text-sm font-bold text-white shadow-md hover:bg-[var(--color-pine-light)]">
+        {submitLabel}
+      </button>
+    </div>
+  );
+}
+
+/* ---------- modal: tambah / edit barang ---------- */
+
+function ProductModal({ product, categories, onClose, onDone }: { product?: Product; categories: string[]; onClose: () => void; onDone: (m: string) => void }) {
+  const addProduct = useErpStore((s) => s.addProduct);
+  const updateProduct = useErpStore((s) => s.updateProduct);
+  const isEdit = !!product;
+
+  const [sku, setSku] = useState(product?.sku ?? '');
+  const [name, setName] = useState(product?.name ?? '');
+  const [category, setCategory] = useState(product?.category ?? '');
+  const [unit, setUnit] = useState(product?.unit ?? 'Pcs');
+  const [price, setPrice] = useState(product?.price ?? 0);
+  const [minStock, setMinStock] = useState(product?.minStock ?? 5);
+  const [initialQty, setInitialQty] = useState(0);
+  const [expiredDate, setExpiredDate] = useState('');
+  const [error, setError] = useState('');
+
+  const submit = () => {
+    const res = isEdit
+      ? updateProduct(product!.id, { name, category: category.trim() || 'Lainnya', unit: unit.trim() || 'Pcs', price, minStock })
+      : addProduct({ sku, name, category, unit, price, minStock, initialQty, expiredDate });
+    if (!res.ok) return setError(res.error);
+    onDone(res.message);
   };
 
   return (
-    <div className="space-y-6 relative z-10">
-      {/* Header Page */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-extrabold text-slate-800">Manajemen Stok & Kontrol FEFO</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Pengelolaan stok barang, tracking kadaluarsa batch, & stock opname
-          </p>
+    <ModalShell title={isEdit ? 'Edit barang' : 'Tambah barang baru'} subtitle={isEdit ? product!.sku : 'Daftarkan barang, stok awal boleh dikosongkan'} onClose={onClose}>
+      <div className="space-y-3">
+        <div className="grid grid-cols-3 gap-3">
+          <div className="col-span-1">
+            <Field label="SKU">
+              <input className={`${inputCls} font-mono uppercase`} value={sku} disabled={isEdit} onChange={(e) => setSku(e.target.value)} placeholder="BRS-002" />
+            </Field>
+          </div>
+          <div className="col-span-2">
+            <Field label="Nama barang">
+              <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Beras Pandan Wangi 5kg" />
+            </Field>
+          </div>
         </div>
-        <button className="flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs shadow-md transition-all">
-          <Plus className="h-4 w-4" />
-          <span>+ Tambah Stok / Batch Baru</span>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Kategori">
+            <input className={inputCls} list="kategori-list" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Beras & Biji" />
+            <datalist id="kategori-list">
+              {categories.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+          </Field>
+          <Field label="Satuan">
+            <input className={inputCls} value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="Pcs / Kg / Dus" />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Harga jual (Rp)">
+            <input type="number" className={inputCls} value={price || ''} onChange={(e) => setPrice(Number(e.target.value))} />
+          </Field>
+          <Field label="Batas stok menipis">
+            <input type="number" className={inputCls} value={minStock} onChange={(e) => setMinStock(Number(e.target.value))} />
+          </Field>
+        </div>
+
+        {!isEdit && (
+          <div className="grid grid-cols-2 gap-3 rounded-xl bg-[var(--color-canvas-sunk)] p-3">
+            <Field label="Stok awal">
+              <input type="number" className={inputCls} value={initialQty || ''} onChange={(e) => setInitialQty(Number(e.target.value))} placeholder="0" />
+            </Field>
+            <Field label="Kadaluarsa batch">
+              <input type="date" className={inputCls} value={expiredDate} onChange={(e) => setExpiredDate(e.target.value)} />
+            </Field>
+          </div>
+        )}
+
+        <ErrorBox text={error} />
+      </div>
+      <FormActions onClose={onClose} submitLabel={isEdit ? 'Simpan perubahan' : 'Simpan barang'} onSubmit={submit} />
+    </ModalShell>
+  );
+}
+
+/* ---------- modal: tambah batch ---------- */
+
+function BatchModal({ product, onClose, onDone }: { product: Product; onClose: () => void; onDone: (m: string) => void }) {
+  const addBatch = useErpStore((s) => s.addBatch);
+  const [qty, setQty] = useState(0);
+  const [expiredDate, setExpiredDate] = useState('');
+  const [error, setError] = useState('');
+
+  const submit = () => {
+    const res = addBatch(product.id, qty, expiredDate);
+    if (!res.ok) return setError(res.error);
+    onDone(res.message);
+  };
+
+  return (
+    <ModalShell title="Tambah stok / batch" subtitle={`${product.name} (${product.sku})`} onClose={onClose}>
+      <div className="space-y-3">
+        <Field label={`Jumlah masuk (${product.unit})`} hint={`Stok sekarang: ${getTotalStock(product)} ${product.unit}`}>
+          <input type="number" className={inputCls} value={qty || ''} onChange={(e) => setQty(Number(e.target.value))} />
+        </Field>
+        <Field label="Tanggal kadaluarsa batch">
+          <input type="date" className={inputCls} value={expiredDate} onChange={(e) => setExpiredDate(e.target.value)} />
+        </Field>
+        <ErrorBox text={error} />
+      </div>
+      <FormActions onClose={onClose} submitLabel="Tambah batch" onSubmit={submit} />
+    </ModalShell>
+  );
+}
+
+/* ---------- modal: stock opname ---------- */
+
+const REASONS = [
+  'Penyusutan wajar',
+  'Barang rusak / pecah',
+  'Barang kadaluarsa / basi',
+  'Koreksi salah input',
+  'Barang ditemukan',
+];
+
+function OpnameModal({ product, onClose, onDone }: { product: Product; onClose: () => void; onDone: (m: string) => void }) {
+  const adjustStock = useErpStore((s) => s.adjustStock);
+  const system = getTotalStock(product);
+  const [actual, setActual] = useState(system);
+  const [reason, setReason] = useState(REASONS[0]);
+  const [error, setError] = useState('');
+
+  const diff = actual - system;
+
+  const submit = () => {
+    const res = adjustStock(product.id, actual, reason);
+    if (!res.ok) return setError(res.error);
+    onDone(res.message);
+  };
+
+  return (
+    <ModalShell title="Stock opname" subtitle={`${product.name} (${product.sku})`} onClose={onClose}>
+      <div className="space-y-3">
+        <Field label={`Stok fisik hasil hitung (${product.unit})`} hint={`Stok di sistem: ${system} ${product.unit}`}>
+          <input type="number" className={`${inputCls} text-base font-bold`} value={actual} onChange={(e) => setActual(Number(e.target.value))} />
+        </Field>
+        <Field label="Alasan selisih">
+          <select className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)}>
+            {REASONS.map((r) => (
+              <option key={r}>{r}</option>
+            ))}
+          </select>
+        </Field>
+
+        <div
+          className={`rounded-xl px-4 py-3 text-sm ${
+            diff === 0
+              ? 'bg-[var(--color-canvas-sunk)] text-[var(--color-ink-soft)]'
+              : diff < 0
+              ? 'bg-[var(--color-rust-tint)] text-[var(--color-rust)]'
+              : 'bg-[var(--color-pine-tint)] text-[var(--color-pine)]'
+          }`}
+        >
+          {diff === 0 ? (
+            'Tidak ada selisih.'
+          ) : (
+            <>
+              Selisih{' '}
+              <strong>
+                {diff > 0 ? '+' : ''}
+                {diff} {product.unit}
+              </strong>{' '}
+              · nilai jurnal <strong>{rp(Math.abs(diff) * product.price)}</strong>
+              <p className="mt-1 text-[11px] opacity-80">
+                {diff < 0 ? 'Stok dikurangi dari batch dengan tanggal kadaluarsa paling awal.' : 'Tambahan dimasukkan ke batch dengan kadaluarsa paling akhir.'}
+              </p>
+            </>
+          )}
+        </div>
+        <ErrorBox text={error} />
+      </div>
+      <FormActions onClose={onClose} submitLabel="Simpan penyesuaian" onSubmit={submit} />
+    </ModalShell>
+  );
+}
+
+/* =========================================================================
+   HALAMAN
+   ========================================================================= */
+
+export default function InventoryPage() {
+  const hydrated = useHydrated();
+  const products = useErpStore((s) => s.products);
+
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<Filter>('all');
+  const [modal, setModal] = useState<Modal>(null);
+  const [toast, setToast] = useState('');
+
+  const categories = useMemo(() => Array.from(new Set(products.map((p) => p.category))), [products]);
+
+  const isLow = (p: Product) => getTotalStock(p) <= p.minStock;
+  const isRisk = (p: Product) =>
+    p.batches.some((b) => {
+      const s = getExpiryStatus(b.expiredDate);
+      return s === 'expired' || s === 'kritis';
+    });
+
+  const stats = useMemo(
+    () => ({
+      sku: products.length,
+      value: products.reduce((s, p) => s + getTotalStock(p) * p.price, 0),
+      low: products.filter(isLow).length,
+      risk: products.filter(isRisk).length,
+    }),
+    [products]
+  );
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return products.filter((p) => {
+      const match = p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.category.toLowerCase().includes(q);
+      const pass = filter === 'all' || (filter === 'low' && isLow(p)) || (filter === 'risk' && isRisk(p));
+      return match && pass;
+    });
+  }, [products, search, filter]);
+
+  const done = (message: string) => {
+    setModal(null);
+    setToast(message);
+    setTimeout(() => setToast(''), 3500);
+  };
+
+  if (!hydrated) return <p className="text-sm text-[var(--color-ink-soft)]">Memuat data stok…</p>;
+
+  return (
+    <div className="relative z-10 space-y-6">
+      {/* Header */}
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+        <div>
+          <h1 className="font-display text-xl font-semibold">Stok & Kontrol FEFO</h1>
+          <p className="mt-0.5 text-xs text-[var(--color-ink-soft)]">Kelola barang, batch kadaluarsa, dan stock opname</p>
+        </div>
+        <button
+          onClick={() => setModal({ type: 'product' })}
+          className="flex items-center justify-center gap-2 rounded-xl bg-[var(--color-pine)] px-4 py-2.5 text-xs font-bold text-white shadow-md hover:bg-[var(--color-pine-light)]"
+        >
+          <Plus className="h-4 w-4" /> Tambah barang
         </button>
       </div>
 
-      {/* Top Controls: Search & Filter */}
-      <div className="glass-card-light rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+      {/* Ringkasan */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {[
+          { label: 'Jenis barang', value: String(stats.sku), tone: 'text-[var(--color-pine)]' },
+          { label: 'Nilai stok (harga jual)', value: rp(stats.value), tone: 'text-[var(--color-pine)]' },
+          { label: 'Stok menipis', value: String(stats.low), tone: stats.low ? 'text-[var(--color-gold)]' : 'text-[var(--color-ink)]' },
+          { label: 'Barang berisiko kadaluarsa', value: String(stats.risk), tone: stats.risk ? 'text-[var(--color-rust)]' : 'text-[var(--color-ink)]' },
+        ].map((c) => (
+          <div key={c.label} className="glass-card-light rounded-2xl p-4">
+            <p className="text-[11px] font-semibold text-[var(--color-ink-soft)]">{c.label}</p>
+            <p className={`font-display mt-1 text-xl font-semibold ${c.tone}`}>{c.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Pencarian & filter */}
+      <div className="glass-card-light flex flex-col items-center justify-between gap-3 rounded-2xl p-4 sm:flex-row">
         <div className="relative w-full sm:w-80">
-          <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3.5 top-2.5 h-4 w-4 text-[var(--color-ink-soft)]" />
           <input
             type="text"
-            placeholder="Cari SKU, Nama Barang, Kategori..."
+            placeholder="Cari SKU, nama barang, kategori"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-10 pr-4 text-xs text-slate-800 placeholder-slate-400 focus:border-emerald-500 focus:bg-white focus:outline-none transition-all"
+            className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-canvas)] py-2 pl-10 pr-4 text-xs focus:border-[var(--color-gold)] focus:outline-none"
           />
         </div>
-
-        <div className="flex items-center gap-2 text-xs text-slate-600 w-full sm:w-auto justify-end">
-          <span className="flex items-center gap-1 bg-rose-50 border border-rose-200 text-rose-600 px-2.5 py-1 rounded-md font-semibold">
-            <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
-            Batch Kritis
-          </span>
-          <span className="flex items-center gap-1 bg-amber-50 border border-amber-200 text-amber-600 px-2.5 py-1 rounded-md font-semibold">
-            <span className="h-2 w-2 rounded-full bg-amber-500" />
-            Risiko 30 Hari
-          </span>
+        <div className="flex gap-2 text-xs font-semibold">
+          {(
+            [
+              ['all', 'Semua'],
+              ['low', `Menipis (${stats.low})`],
+              ['risk', `Berisiko (${stats.risk})`],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setFilter(key)}
+              className={`rounded-full border px-3 py-1.5 transition-colors ${
+                filter === key
+                  ? 'border-[var(--color-pine)] bg-[var(--color-pine)] text-white'
+                  : 'border-[var(--color-border)] text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas-sunk)]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Tabel Inventaris */}
-      <div className="glass-card-light rounded-2xl overflow-hidden shadow-xs">
+      {/* Tabel */}
+      <div className="glass-card-light overflow-hidden rounded-2xl">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-700">
-            <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-[var(--color-border)] bg-[var(--color-canvas-sunk)] text-[var(--color-ink-soft)]">
               <tr>
-                <th className="py-3.5 px-4">SKU & Produk</th>
-                <th className="py-3.5 px-4">Kategori</th>
-                <th className="py-3.5 px-4">Total Stok</th>
-                <th className="py-3.5 px-4">Batch FEFO & Expired</th>
-                <th className="py-3.5 px-4 text-right">Aksi</th>
+                <th className="px-4 py-3.5 font-semibold">Barang</th>
+                <th className="px-4 py-3.5 font-semibold">Kategori</th>
+                <th className="px-4 py-3.5 font-semibold">Stok</th>
+                <th className="px-4 py-3.5 font-semibold">Batch (urut FEFO)</th>
+                <th className="px-4 py-3.5 text-right font-semibold">Aksi</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredInventory.map((item) => {
-                const isLowStock = item.totalStock <= item.minStock;
+            <tbody className="divide-y divide-[var(--color-border)]">
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-14 text-center text-[var(--color-ink-soft)]">
+                    Tidak ada barang yang cocok dengan pencarian atau filter ini.
+                  </td>
+                </tr>
+              )}
+              {filtered.map((p) => {
+                const total = getTotalStock(p);
+                const low = total <= p.minStock;
+                const batches = [...p.batches].sort((a, b) => a.expiredDate.localeCompare(b.expiredDate));
                 return (
-                  <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                    {/* SKU & Nama */}
-                    <td className="py-3.5 px-4 font-semibold text-slate-800">
+                  <tr key={p.id} className="align-top transition-colors hover:bg-[var(--color-canvas)]">
+                    <td className="px-4 py-3.5">
                       <div className="flex items-center gap-3">
-                        <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600 border border-emerald-100">
+                        <div className="rounded-lg bg-[var(--color-pine-tint)] p-2 text-[var(--color-pine)]">
                           <Package className="h-4 w-4" />
                         </div>
                         <div>
-                          <p className="font-bold text-slate-900">{item.name}</p>
-                          <span className="text-[10px] font-mono text-slate-400">{item.sku}</span>
+                          <p className="font-semibold">{p.name}</p>
+                          <p className="font-mono text-[10px] text-[var(--color-ink-soft)]">
+                            {p.sku} · {rp(p.price)}/{p.unit}
+                          </p>
                         </div>
                       </div>
                     </td>
-
-                    {/* Kategori */}
-                    <td className="py-3.5 px-4">
-                      <span className="bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md font-medium text-[11px]">
-                        {item.category}
-                      </span>
+                    <td className="px-4 py-3.5">
+                      <span className="rounded-md bg-[var(--color-canvas-sunk)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-ink-soft)]">{p.category}</span>
                     </td>
-
-                    {/* Total Stok */}
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <span className={`font-black text-sm ${isLowStock ? 'text-rose-600' : 'text-slate-800'}`}>
-                          {item.totalStock} {item.unit}
-                        </span>
-                        {isLowStock && (
-                          <span className="text-[10px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-bold">
-                            Menipis
-                          </span>
-                        )}
-                      </div>
+                    <td className="px-4 py-3.5">
+                      <p className={`text-sm font-bold ${low ? 'text-[var(--color-rust)]' : ''}`}>
+                        {total} {p.unit}
+                      </p>
+                      {low && <span className="mt-1 inline-block rounded bg-[var(--color-rust-tint)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--color-rust)]">Menipis (min {p.minStock})</span>}
                     </td>
-
-                    {/* Batch FEFO List */}
-                    <td className="py-3.5 px-4">
+                    <td className="px-4 py-3.5">
                       <div className="space-y-1.5">
-                        {item.batches.map((b, idx) => (
-                          <div
-                            key={idx}
-                            className={`flex items-center gap-2 text-[11px] px-2.5 py-1 rounded-md border ${
-                              b.status === 'kritis'
-                                ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                : b.status === 'peringatan'
-                                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            }`}
-                          >
-                            <Calendar className="h-3 w-3" />
-                            <span className="font-mono font-bold">{b.batchNo}</span>
-                            <span>({b.qty} {item.unit})</span>
-                            <span className="ml-auto font-semibold">{b.expiredDate}</span>
-                          </div>
-                        ))}
+                        {batches.length === 0 && <span className="text-[var(--color-ink-soft)]">Belum ada batch</span>}
+                        {batches.map((b) => {
+                          const status = getExpiryStatus(b.expiredDate);
+                          const days = getDaysLeft(b.expiredDate);
+                          return (
+                            <div key={b.batchNo} className={`flex items-center gap-2 rounded-md border px-2.5 py-1 text-[11px] ${batchStyle[status]}`}>
+                              <Calendar className="h-3 w-3 shrink-0" />
+                              <span className="font-mono font-bold">{b.batchNo}</span>
+                              <span>
+                                {b.qty} {p.unit}
+                              </span>
+                              <span className="ml-auto whitespace-nowrap font-semibold">
+                                {b.expiredDate} · {status === 'expired' ? 'Kadaluarsa' : `${days} hari`}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </td>
-
-                    {/* Tombol Aksi */}
-                    <td className="py-3.5 px-4 text-right">
-                      <button
-                        onClick={() => handleOpenOpname(item)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300 rounded-lg text-xs font-semibold transition-all"
-                      >
-                        <Edit3 className="h-3.5 w-3.5" />
-                        <span>Opname</span>
-                      </button>
+                    <td className="px-4 py-3.5">
+                      <div className="flex justify-end gap-1.5">
+                        <button
+                          title="Tambah batch"
+                          onClick={() => setModal({ type: 'batch', product: p })}
+                          className="rounded-lg border border-[var(--color-border)] p-2 text-[var(--color-ink-soft)] transition-colors hover:border-[var(--color-pine)] hover:bg-[var(--color-pine-tint)] hover:text-[var(--color-pine)]"
+                        >
+                          <PackagePlus className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          title="Stock opname"
+                          onClick={() => setModal({ type: 'opname', product: p })}
+                          className="rounded-lg border border-[var(--color-border)] p-2 text-[var(--color-ink-soft)] transition-colors hover:border-[var(--color-gold)] hover:bg-[var(--color-gold-tint)] hover:text-[var(--color-gold)]"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          title="Edit barang"
+                          onClick={() => setModal({ type: 'product', product: p })}
+                          className="rounded-lg border border-[var(--color-border)] p-2 text-[var(--color-ink-soft)] transition-colors hover:bg-[var(--color-canvas-sunk)]"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -227,96 +506,26 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* MODAL STOCK OPNAME */}
+      {/* Modal */}
       <AnimatePresence>
-        {isOpnameOpen && selectedProduct && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.95 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.95 }}
-              className="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-xl space-y-4 relative"
-            >
-              <button
-                onClick={() => setIsOpnameOpen(false)}
-                className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 p-1"
-              >
-                <X className="h-4 w-4" />
-              </button>
-
-              <div>
-                <h3 className="text-base font-bold text-slate-800">Stock Opname / Penyesuaian</h3>
-                <p className="text-xs text-slate-500 mt-0.5">{selectedProduct.name} ({selectedProduct.sku})</p>
-              </div>
-
-              <div className="space-y-3 pt-2">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Stok Fisik Aktual ({selectedProduct.unit})
-                  </label>
-                  <input
-                    type="number"
-                    value={opnameQty}
-                    onChange={(e) => setOpnameQty(Number(e.target.value))}
-                    className="w-full rounded-xl border border-slate-300 bg-slate-50 py-2 px-3 text-sm font-bold text-slate-800 focus:border-emerald-500 focus:bg-white focus:outline-none"
-                  />
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Stok sistem saat ini: <span className="font-bold">{selectedProduct.totalStock} {selectedProduct.unit}</span>
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Alasan Selisih Stok
-                  </label>
-                  <select
-                    value={opnameReason}
-                    onChange={(e) => setOpnameReason(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-slate-50 py-2 px-3 text-xs text-slate-800 focus:border-emerald-500 focus:bg-white focus:outline-none"
-                  >
-                    <option value="Penyusutan Wajar">Penyusutan Wajar (Susut Beras/Gula)</option>
-                    <option value="Barang Rusak/Pecah">Barang Rusak / Pecah dalam Toko</option>
-                    <option value="Barang Kadaluarsa">Barang Kadaluarsa / Basi</option>
-                    <option value="Koreksi Input">Koreksi Salah Input</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex gap-2 pt-4">
-                <button
-                  onClick={() => setIsOpnameOpen(false)}
-                  className="flex-1 py-2.5 border border-slate-200 text-slate-600 font-bold rounded-xl text-xs hover:bg-slate-50 transition-colors"
-                >
-                  Batal
-                </button>
-                <button
-                  onClick={handleSaveOpname}
-                  className="flex-1 py-2.5 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-500 shadow-md transition-colors"
-                >
-                  Simpan Penyesuaian
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
+        {modal?.type === 'product' && (
+          <ProductModal key={modal.product?.id ?? 'new'} product={modal.product} categories={categories} onClose={() => setModal(null)} onDone={done} />
         )}
+        {modal?.type === 'batch' && <BatchModal key={modal.product.id} product={modal.product} onClose={() => setModal(null)} onDone={done} />}
+        {modal?.type === 'opname' && <OpnameModal key={modal.product.id} product={modal.product} onClose={() => setModal(null)} onDone={done} />}
       </AnimatePresence>
 
-      {/* NOTIFIKASI SUKSES OPNAME */}
+      {/* Toast */}
       <AnimatePresence>
-        {isSuccessAlert && (
+        {toast && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-6 right-6 bg-emerald-800 text-white px-4 py-3 rounded-xl shadow-xl z-50 flex items-center gap-3 text-xs font-semibold"
+            className="fixed bottom-6 right-6 z-50 flex max-w-sm items-start gap-3 rounded-xl bg-[var(--color-pine)] px-4 py-3 text-xs font-semibold text-white shadow-xl"
           >
-            <CheckCircle2 className="h-5 w-5 text-emerald-300" />
-            <span>Stock opname berhasil disimpan dan jurnal penyesuaian tercatat!</span>
+            <CheckCircle2 className="h-5 w-5 shrink-0 text-[var(--color-gold-light)]" />
+            <span>{toast}</span>
           </motion.div>
         )}
       </AnimatePresence>
