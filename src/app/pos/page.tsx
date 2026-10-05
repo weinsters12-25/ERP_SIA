@@ -1,17 +1,18 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
+import { createPortal } from 'react-dom';
+import DashboardLayout from '../(dashboard)/layout';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   AlertCircle,
-  ArrowLeft,
   Banknote,
   CheckCircle2,
   CreditCard,
   Minus,
   Package,
   Plus,
+  Printer,
   Search,
   Trash2,
   X,
@@ -23,16 +24,159 @@ import {
   getSellableStock,
   getNearestBatch,
   getDaysLeft,
+  toDateStr,
+  toDateTimeStr,
   type Product,
 } from '@/stores/useErpStore';
 
 const rp = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
+
+/* Identitas toko di struk — silakan ubah sesuai toko Anda */
+const STORE_NAME = 'TOSERBA';
+const STORE_TAGLINE = 'Nature Fresh · Toko Sembako';
+const STORE_ADDRESS = 'Alamat toko Anda di sini';
+const STORE_PHONE = 'Telp/WA: 08xx-xxxx-xxxx';
+const CASHIER_NAME = 'Admin Toko';
+
+interface ReceiptItem {
+  name: string;
+  qty: number;
+  unit: string;
+  price: number;
+}
 
 interface Receipt {
   invoiceNo: string;
   total: number;
   change: number;
   method: 'CASH' | 'CREDIT';
+  received: number;
+  date: string;
+  items: ReceiptItem[];
+  customerName?: string;
+  dueDate?: string;
+}
+
+/**
+ * Struk untuk printer thermal 80mm. Disembunyikan di layar, dan HANYA elemen
+ * ini yang tercetak saat window.print() dipanggil.
+ */
+function ReceiptPrint({ receipt }: { receipt: Receipt }) {
+  const n = (v: number) => v.toLocaleString('id-ID');
+  const totalQty = receipt.items.reduce((s, i) => s + i.qty, 0);
+
+  return (
+    <div id="struk-print">
+      <style>{`
+        #struk-print { display: none; }
+        @page { size: 80mm auto; margin: 0; }
+        @media print {
+          html, body { background: #fff !important; background-image: none !important; height: auto !important; }
+          body > *:not(#struk-print) { display: none !important; }
+          #struk-print {
+            display: block !important;
+            width: 72mm;
+            margin: 0 auto;
+            padding: 4mm 2mm;
+            color: #000;
+            background: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+            line-height: 1.4;
+          }
+          #struk-print .st-center { text-align: center; }
+          #struk-print .st-bold { font-weight: 700; }
+          #struk-print .st-title { font-size: 16px; letter-spacing: 1px; }
+          #struk-print .st-small { font-size: 10px; }
+          #struk-print .st-line { border-top: 1px dashed #000; margin: 6px 0; }
+          #struk-print .st-row { display: flex; justify-content: space-between; gap: 8px; }
+          #struk-print .st-item { margin-bottom: 4px; word-break: break-word; }
+          #struk-print .st-big { font-size: 14px; }
+        }
+      `}</style>
+
+      <div className="st-center st-bold st-title">{STORE_NAME}</div>
+      <div className="st-center st-small">{STORE_TAGLINE}</div>
+      <div className="st-center st-small">{STORE_ADDRESS}</div>
+      <div className="st-center st-small">{STORE_PHONE}</div>
+
+      <div className="st-line" />
+
+      <div className="st-row st-small">
+        <span>No</span>
+        <span>{receipt.invoiceNo}</span>
+      </div>
+      <div className="st-row st-small">
+        <span>Tanggal</span>
+        <span>{receipt.date}</span>
+      </div>
+      <div className="st-row st-small">
+        <span>Kasir</span>
+        <span>{CASHIER_NAME}</span>
+      </div>
+      {receipt.customerName && (
+        <div className="st-row st-small">
+          <span>Pelanggan</span>
+          <span>{receipt.customerName}</span>
+        </div>
+      )}
+
+      <div className="st-line" />
+
+      {receipt.items.map((it, idx) => (
+        <div key={idx} className="st-item">
+          <div>{it.name}</div>
+          <div className="st-row">
+            <span>
+              {it.qty} {it.unit} x {n(it.price)}
+            </span>
+            <span>{n(it.qty * it.price)}</span>
+          </div>
+        </div>
+      ))}
+
+      <div className="st-line" />
+
+      <div className="st-row st-small">
+        <span>Jumlah item</span>
+        <span>{totalQty}</span>
+      </div>
+      <div className="st-row st-bold st-big">
+        <span>TOTAL</span>
+        <span>Rp {n(receipt.total)}</span>
+      </div>
+
+      {receipt.method === 'CASH' ? (
+        <>
+          <div className="st-row">
+            <span>Tunai</span>
+            <span>Rp {n(receipt.received)}</span>
+          </div>
+          <div className="st-row st-bold">
+            <span>Kembali</span>
+            <span>Rp {n(receipt.change)}</span>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="st-row st-bold">
+            <span>BELUM LUNAS (BON)</span>
+          </div>
+          {receipt.dueDate && (
+            <div className="st-row">
+              <span>Jatuh tempo</span>
+              <span>{receipt.dueDate}</span>
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="st-line" />
+
+      <div className="st-center">Terima kasih sudah berbelanja!</div>
+      <div className="st-center st-small">Barang yang sudah dibeli tidak dapat ditukar</div>
+    </div>
+  );
 }
 
 export default function PosPage() {
@@ -55,6 +199,38 @@ export default function PosPage() {
   const [dueDays, setDueDays] = useState(14);
   const [error, setError] = useState('');
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+
+  // Cetak otomatis setelah transaksi (pilihan disimpan di browser)
+  const [autoPrint, setAutoPrint] = useState(false);
+  const printNextRef = useRef(false);
+  const receiptTimeRef = useRef(0); // kapan struk muncul (untuk mencegah Enter ganda)
+
+  useEffect(() => {
+    try {
+      setAutoPrint(localStorage.getItem('pos-auto-print') === '1');
+    } catch {
+      /* abaikan */
+    }
+  }, []);
+
+  const toggleAutoPrint = (v: boolean) => {
+    setAutoPrint(v);
+    try {
+      localStorage.setItem('pos-auto-print', v ? '1' : '0');
+    } catch {
+      /* abaikan */
+    }
+  };
+
+  const printReceipt = () => window.print();
+
+  useEffect(() => {
+    if (receipt && printNextRef.current) {
+      printNextRef.current = false;
+      const t = setTimeout(() => window.print(), 200);
+      return () => clearTimeout(t);
+    }
+  }, [receipt]);
 
   const total = useMemo(() => cart.reduce((s, i) => s + i.price * i.qty, 0), [cart]);
 
@@ -86,6 +262,13 @@ export default function PosPage() {
       } else if (e.key === 'F9') {
         e.preventDefault();
         openPayment();
+      } else if (e.key === 'F8' && receipt) {
+        e.preventDefault();
+        printReceipt();
+      } else if (e.key === 'Enter' && receipt) {
+        // Enter di modal sukses = Transaksi baru (abaikan tombol yang ditahan)
+        e.preventDefault();
+        if (!e.repeat && Date.now() - receiptTimeRef.current > 500) setReceipt(null);
       } else if (e.key === 'Escape') {
         setPayOpen(false);
         setReceipt(null);
@@ -109,6 +292,9 @@ export default function PosPage() {
   const canConfirm = method === 'CASH' ? received >= total && total > 0 : customerName.trim().length > 0;
 
   const handleConfirm = () => {
+    // Simpan salinan isi keranjang untuk struk (keranjang dikosongkan setelah bayar)
+    const items = cart.map((i) => ({ name: i.name, qty: i.qty, unit: i.unit, price: i.price }));
+
     const result = sellItems(
       cart.map((i) => ({ id: i.id, name: i.name, qty: i.qty })),
       method === 'CASH' ? { method: 'CASH', received } : { method: 'CREDIT', customerName, phone, dueDays }
@@ -120,7 +306,23 @@ export default function PosPage() {
     }
 
     setPayOpen(false);
-    setReceipt({ invoiceNo: result.invoiceNo, total: result.total, change: result.change, method: result.method });
+    const now = new Date();
+    const due = new Date(now);
+    due.setDate(due.getDate() + dueDays);
+
+    printNextRef.current = autoPrint;
+    receiptTimeRef.current = Date.now();
+    setReceipt({
+      invoiceNo: result.invoiceNo,
+      total: result.total,
+      change: result.change,
+      method: result.method,
+      received: method === 'CASH' ? received : 0,
+      date: toDateTimeStr(now),
+      items,
+      customerName: method === 'CREDIT' ? customerName.trim() : undefined,
+      dueDate: method === 'CREDIT' ? toDateStr(due) : undefined,
+    });
     clearCart();
     setCustomerName('');
     setPhone('');
@@ -129,25 +331,21 @@ export default function PosPage() {
 
   if (!hydrated) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[var(--color-canvas)] text-sm text-[var(--color-ink-soft)]">
-        Memuat kasir…
-      </div>
+      <DashboardLayout>
+        <div className="flex h-[60vh] items-center justify-center text-sm text-[var(--color-ink-soft)]">
+          Memuat kasir…
+        </div>
+      </DashboardLayout>
     );
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[var(--color-canvas)] text-[var(--color-ink)]">
+    <DashboardLayout>
+    <div className="-m-8 flex h-[calc(100vh-4rem)] overflow-hidden bg-[var(--color-canvas)] text-[var(--color-ink)]">
       {/* ============ KIRI: katalog ============ */}
       <section className="flex flex-1 flex-col overflow-hidden p-6">
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--color-border)] pb-5">
           <div className="flex items-center gap-4">
-            <Link
-              href="/"
-              aria-label="Kembali ke dashboard"
-              className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 text-[var(--color-pine)] transition-colors hover:bg-[var(--color-canvas-sunk)]"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
             <div>
               <h1 className="font-display text-xl font-semibold">Kasir Toserba</h1>
               <p className="text-xs text-[var(--color-ink-soft)]">F2 cari barang · F9 bayar</p>
@@ -185,7 +383,7 @@ export default function PosPage() {
         </div>
 
         {/* Grid produk */}
-        <div className="mt-4 grid flex-1 grid-cols-2 content-start gap-4 overflow-y-auto pr-1 md:grid-cols-3 xl:grid-cols-4">
+        <div className="mt-4 grid flex-1 grid-cols-2 content-start gap-4 overflow-y-auto pr-1 xl:grid-cols-3 2xl:grid-cols-4">
           {filtered.length === 0 && (
             <p className="col-span-full py-16 text-center text-sm text-[var(--color-ink-soft)]">
               Tidak ada barang yang cocok. Coba kata kunci atau kategori lain.
@@ -203,7 +401,10 @@ export default function PosPage() {
               <button
                 key={p.id}
                 disabled={soldOut || inCart >= stock}
-                onClick={() => handleAdd(p)}
+                onClick={(e) => {
+                  handleAdd(p);
+                  e.currentTarget.blur(); // supaya Enter tidak menekan tombol ini lagi
+                }}
                 className="glass-card-light flex flex-col justify-between rounded-2xl p-4 text-left disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <div>
@@ -255,7 +456,7 @@ export default function PosPage() {
       </section>
 
       {/* ============ KANAN: keranjang ============ */}
-      <aside className="flex w-96 flex-col justify-between border-l border-[var(--color-border)] bg-[var(--color-surface)] p-6">
+      <aside className="flex w-80 flex-col justify-between border-l border-[var(--color-border)] bg-[var(--color-surface)] p-6">
         <div className="min-h-0 flex-1">
           <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-4">
             <h2 className="font-display text-lg font-semibold">Keranjang</h2>
@@ -269,7 +470,7 @@ export default function PosPage() {
             )}
           </div>
 
-          <div className="mt-4 max-h-[calc(100vh-22rem)] space-y-3 overflow-y-auto pr-1">
+          <div className="mt-4 max-h-[calc(100vh-26rem)] space-y-3 overflow-y-auto pr-1">
             {cart.length === 0 ? (
               <div className="rounded-xl border border-dashed border-[var(--color-border-strong)] py-14 text-center text-xs text-[var(--color-ink-soft)]">
                 Keranjang masih kosong.
@@ -293,7 +494,10 @@ export default function PosPage() {
                   <div className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1">
                     <button
                       aria-label="Kurangi"
-                      onClick={() => updateQty(item.id, item.qty - 1)}
+                      onClick={(e) => {
+                        updateQty(item.id, item.qty - 1);
+                        e.currentTarget.blur();
+                      }}
                       className="rounded p-1 hover:bg-[var(--color-canvas-sunk)]"
                     >
                       <Minus className="h-3 w-3" />
@@ -302,7 +506,10 @@ export default function PosPage() {
                     <button
                       aria-label="Tambah"
                       disabled={item.qty >= item.stock}
-                      onClick={() => updateQty(item.id, item.qty + 1)}
+                      onClick={(e) => {
+                        updateQty(item.id, item.qty + 1);
+                        e.currentTarget.blur();
+                      }}
                       className="rounded p-1 hover:bg-[var(--color-canvas-sunk)] disabled:opacity-30"
                     >
                       <Plus className="h-3 w-3" />
@@ -397,7 +604,11 @@ export default function PosPage() {
                       value={received ? received.toLocaleString('id-ID') : ''}
                       onChange={(e) => setReceived(Number(e.target.value.replace(/\D/g, '')))}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && canConfirm) handleConfirm();
+                        if (e.key === 'Enter' && canConfirm) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleConfirm();
+                        }
                       }}
                       className="w-full rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-canvas)] px-3 py-2.5 text-lg font-bold focus:border-[var(--color-gold)] focus:outline-none"
                     />
@@ -462,6 +673,16 @@ export default function PosPage() {
                 </p>
               )}
 
+              <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-[var(--color-ink-soft)]">
+                <input
+                  type="checkbox"
+                  checked={autoPrint}
+                  onChange={(e) => toggleAutoPrint(e.target.checked)}
+                  className="h-4 w-4 accent-[var(--color-pine)]"
+                />
+                Cetak struk otomatis setelah transaksi
+              </label>
+
               <div className="flex gap-2 pt-2">
                 <button
                   onClick={() => setPayOpen(false)}
@@ -517,16 +738,28 @@ export default function PosPage() {
               <p className="text-xs text-[var(--color-ink-soft)]">
                 Stok terpotong otomatis (FEFO) dan jurnal penjualan sudah dibuat.
               </p>
-              <button
-                onClick={() => setReceipt(null)}
-                className="w-full rounded-xl bg-[var(--color-pine)] py-2.5 text-sm font-bold text-white hover:bg-[var(--color-pine-light)]"
-              >
-                Transaksi baru
-              </button>
+              <div className="space-y-2">
+                <button
+                  onClick={printReceipt}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--color-pine)] py-2.5 text-sm font-bold text-[var(--color-pine)] hover:bg-[var(--color-pine-tint)]"
+                >
+                  <Printer className="h-4 w-4" /> Cetak struk (F8)
+                </button>
+                <button
+                  onClick={() => setReceipt(null)}
+                  className="w-full rounded-xl bg-[var(--color-pine)] py-2.5 text-sm font-bold text-white hover:bg-[var(--color-pine-light)]"
+                >
+                  Transaksi baru (Enter)
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ============ STRUK CETAK (tersembunyi di layar, tampil saat print) ============ */}
+      {receipt && createPortal(<ReceiptPrint receipt={receipt} />, document.body)}
     </div>
+    </DashboardLayout>
   );
 }
