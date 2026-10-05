@@ -19,11 +19,13 @@ export interface Product {
   category: string;
   unit: string;
   price: number;
+  /** Harga beli / modal rata-rata per satuan */
+  cost: number;
   minStock: number;
   batches: Batch[];
 }
 
-export type JournalType = 'SALES' | 'EXPENSE' | 'RECEIVABLE' | 'PAYABLE' | 'ADJUSTMENT';
+export type JournalType = 'SALES' | 'EXPENSE' | 'RECEIVABLE' | 'PAYABLE' | 'ADJUSTMENT' | 'PURCHASE' | 'COGS';
 
 export interface Journal {
   id: string;
@@ -75,12 +77,53 @@ export interface NewProductInput {
   category: string;
   unit: string;
   price: number;
+  cost: number;
   minStock: number;
   initialQty: number; // 0 = tanpa stok awal
   expiredDate: string; // wajib bila initialQty > 0
 }
 
-export type ProductPatch = Partial<Pick<Product, 'name' | 'category' | 'unit' | 'price' | 'minStock'>>;
+export type ProductPatch = Partial<Pick<Product, 'name' | 'category' | 'unit' | 'price' | 'cost' | 'minStock'>>;
+
+/* ---------- Purchasing ---------- */
+
+export interface Supplier {
+  id: string;
+  code: string;
+  name: string;
+  phone: string;
+}
+
+export interface PoItem {
+  productId: string;
+  name: string;
+  unit: string;
+  qty: number;
+  unitCost: number;
+}
+
+export type PoStatus = 'PENDING' | 'RECEIVED' | 'CANCELLED';
+
+export interface PurchaseOrder {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  date: string;
+  receivedDate: string | null;
+  dueDate: string | null; // diisi saat barang diterima
+  paymentTerm: 'CASH' | 'CREDIT';
+  termDays: number;
+  status: PoStatus;
+  items: PoItem[];
+  totalAmount: number;
+  paidAmount: number;
+}
+
+export interface PoLineInput {
+  productId: string;
+  qty: number;
+  unitCost: number;
+}
 
 /* =========================================================================
    HELPER TANGGAL & STOK
@@ -128,30 +171,30 @@ export const getNearestBatch = (p: Product): Batch | undefined =>
 
 const SEED_PRODUCTS: Product[] = [
   {
-    id: '1', sku: 'BRS-001', name: 'Beras Setra Ramos 5kg', category: 'Beras & Biji', unit: 'Pouch', price: 72000, minStock: 10,
+    id: '1', sku: 'BRS-001', name: 'Beras Setra Ramos 5kg', category: 'Beras & Biji', unit: 'Pouch', price: 72000, cost: 62000, minStock: 10,
     batches: [
       { batchNo: 'BATCH-2026-01', qty: 15, expiredDate: '2026-10-15' },
       { batchNo: 'BATCH-2026-05', qty: 30, expiredDate: '2027-05-20' },
     ],
   },
   {
-    id: '2', sku: 'MYK-001', name: 'Minyak Goreng Bimoli 2L', category: 'Minyak & Bumbu', unit: 'Pouch', price: 36000, minStock: 15,
+    id: '2', sku: 'MYK-001', name: 'Minyak Goreng Bimoli 2L', category: 'Minyak & Bumbu', unit: 'Pouch', price: 36000, cost: 30000, minStock: 15,
     batches: [{ batchNo: 'BATCH-2026-03', qty: 8, expiredDate: '2026-11-01' }],
   },
   {
-    id: '3', sku: 'GLA-001', name: 'Gula Pasir Gulaku 1kg', category: 'Sembako', unit: 'Kg', price: 17500, minStock: 20,
+    id: '3', sku: 'GLA-001', name: 'Gula Pasir Gulaku 1kg', category: 'Sembako', unit: 'Kg', price: 17500, cost: 15000, minStock: 20,
     batches: [{ batchNo: 'BATCH-2026-02', qty: 120, expiredDate: '2028-01-10' }],
   },
   {
-    id: '4', sku: 'TLR-001', name: 'Telur Ayam Negeri (Peti)', category: 'Sembako Basah', unit: 'Kg', price: 28000, minStock: 10,
+    id: '4', sku: 'TLR-001', name: 'Telur Ayam Negeri (Peti)', category: 'Sembako Basah', unit: 'Kg', price: 28000, cost: 24000, minStock: 10,
     batches: [{ batchNo: 'BATCH-2026-09', qty: 25, expiredDate: '2026-10-12' }],
   },
   {
-    id: '5', sku: 'TRG-001', name: 'Tepung Terigu Segitiga Biru 1kg', category: 'Sembako', unit: 'Pcs', price: 13000, minStock: 20,
+    id: '5', sku: 'TRG-001', name: 'Tepung Terigu Segitiga Biru 1kg', category: 'Sembako', unit: 'Pcs', price: 13000, cost: 11000, minStock: 20,
     batches: [{ batchNo: 'BATCH-2026-06', qty: 60, expiredDate: '2027-08-20' }],
   },
   {
-    id: '6', sku: 'SMR-001', name: 'Indomie Goreng Spesial (Dus)', category: 'Mie & Kaleng', unit: 'Dus', price: 112000, minStock: 10,
+    id: '6', sku: 'SMR-001', name: 'Indomie Goreng Spesial (Dus)', category: 'Mie & Kaleng', unit: 'Dus', price: 112000, cost: 90000, minStock: 10,
     batches: [{ batchNo: 'BATCH-2026-07', qty: 40, expiredDate: '2027-04-01' }],
   },
 ];
@@ -169,6 +212,32 @@ const SEED_RECEIVABLES: Receivable[] = [
   { id: 'AR-2026-003', invoiceNo: 'INV-1055', customerName: 'Catering Berkah', phone: '081987654321', invoiceDate: '2026-09-01', dueDate: '2026-09-15', totalAmount: 2100000, paidAmount: 2100000 },
 ];
 
+const SEED_COSTS: Record<string, number> = { '1': 62000, '2': 30000, '3': 15000, '4': 24000, '5': 11000, '6': 90000 };
+
+const SEED_SUPPLIERS: Supplier[] = [
+  { id: '1', code: 'SUP-IND-01', name: 'PT Indofood Sukses Makmur', phone: '081234567890' },
+  { id: '2', code: 'SUP-BRS-02', name: 'CV Beras Utama Jaya', phone: '081987654321' },
+  { id: '3', code: 'SUP-BIM-03', name: 'Distributor Minyak Bimoli', phone: '085211223344' },
+];
+
+const SEED_POS: PurchaseOrder[] = [
+  {
+    id: 'PO-2026-001', supplierId: '2', supplierName: 'CV Beras Utama Jaya', date: '2026-09-20', receivedDate: '2026-09-21',
+    dueDate: '2026-10-20', paymentTerm: 'CREDIT', termDays: 30, status: 'RECEIVED', paidAmount: 0, totalAmount: 12400000,
+    items: [{ productId: '1', name: 'Beras Setra Ramos 5kg', unit: 'Pouch', qty: 200, unitCost: 62000 }],
+  },
+  {
+    id: 'PO-2026-002', supplierId: '3', supplierName: 'Distributor Minyak Bimoli', date: '2026-09-22', receivedDate: '2026-09-23',
+    dueDate: '2026-10-06', paymentTerm: 'CREDIT', termDays: 14, status: 'RECEIVED', paidAmount: 7200000, totalAmount: 7200000,
+    items: [{ productId: '2', name: 'Minyak Goreng Bimoli 2L', unit: 'Pouch', qty: 240, unitCost: 30000 }],
+  },
+  {
+    id: 'PO-2026-003', supplierId: '1', supplierName: 'PT Indofood Sukses Makmur', date: '2026-09-25', receivedDate: null,
+    dueDate: null, paymentTerm: 'CREDIT', termDays: 30, status: 'PENDING', paidAmount: 0, totalAmount: 4500000,
+    items: [{ productId: '6', name: 'Indomie Goreng Spesial (Dus)', unit: 'Dus', qty: 50, unitCost: 90000 }],
+  },
+];
+
 const SEED_ACCOUNTS: CashAccount[] = [
   { id: '101', name: 'Kas Kasir POS', balance: 3250000, type: 'CASH' },
   { id: '102', name: 'Kas Kecil Operasional', balance: 1500000, type: 'CASH' },
@@ -184,10 +253,14 @@ interface ErpState {
   journals: Journal[];
   receivables: Receivable[];
   accounts: CashAccount[];
+  suppliers: Supplier[];
+  purchaseOrders: PurchaseOrder[];
   invoiceSeq: number;
   journalSeq: number;
   arSeq: number;
   batchSeq: number;
+  poSeq: number;
+  supplierSeq: number;
 
   /** Proses penjualan POS: potong stok FEFO, buat jurnal, (opsional) buat piutang. */
   sellItems: (lines: SaleLine[], payment: PaymentInput) => SaleResult;
@@ -198,6 +271,14 @@ interface ErpState {
   addBatch: (productId: string, qty: number, expiredDate: string) => ActionResult;
   /** Stock opname: samakan stok sistem dengan stok fisik, buat jurnal penyesuaian bila ada selisih. */
   adjustStock: (productId: string, actualQty: number, reason: string) => ActionResult;
+
+  /** Purchasing */
+  addSupplier: (input: { name: string; phone: string }) => ActionResult;
+  createPO: (supplierId: string, lines: PoLineInput[], term: 'CASH' | 'CREDIT', termDays: number) => ActionResult;
+  /** Terima barang: buat batch, perbarui harga modal, buat jurnal (utang atau kas keluar). */
+  receivePO: (poId: string, expiries: Record<string, string>, payAccountId?: string) => ActionResult;
+  payPO: (poId: string, amount: number, accountId: string) => ActionResult;
+  cancelPO: (poId: string) => ActionResult;
 
   resetDemoData: () => void;
 }
@@ -211,6 +292,10 @@ const initialData = () => ({
   journalSeq: 90,
   arSeq: 4,
   batchSeq: 10,
+  suppliers: SEED_SUPPLIERS,
+  purchaseOrders: SEED_POS,
+  poSeq: 4,
+  supplierSeq: 4,
 });
 
 const makeBatchNo = (seq: number) => `BATCH-${new Date().getFullYear()}-${String(seq).padStart(2, '0')}`;
@@ -238,6 +323,7 @@ export const useErpStore = create<ErpState>()(
         // Salin dalam agar state asli tidak berubah kalau ada validasi gagal
         const products = state.products.map((p) => ({ ...p, batches: p.batches.map((b) => ({ ...b })) }));
         let total = 0;
+        let cogs = 0;
 
         for (const line of lines) {
           const product = products.find((p) => p.id === line.id);
@@ -261,6 +347,7 @@ export const useErpStore = create<ErpState>()(
 
           product.batches = product.batches.filter((b) => b.qty > 0);
           total += product.price * line.qty;
+          cogs += product.cost * line.qty;
         }
 
         // Validasi pembayaran
@@ -314,13 +401,25 @@ export const useErpStore = create<ErpState>()(
           accounts = accounts.map((a) => (a.id === '101' ? { ...a, balance: a.balance + total } : a));
         }
 
+        // Jurnal HPP: beban pokok penjualan vs persediaan
+        const cogsJournal =
+          cogs > 0
+            ? makeJournal(state.journalSeq + 1, {
+                description: `HPP penjualan (Nota #${invoiceNo})`,
+                debitAccount: '601 - Harga Pokok Penjualan',
+                creditAccount: '105 - Persediaan Barang',
+                amount: cogs,
+                type: 'COGS',
+              })
+            : null;
+
         set({
           products,
-          journals: [journal, ...state.journals],
+          journals: [...(cogsJournal ? [cogsJournal] : []), journal, ...state.journals],
           receivables,
           accounts,
           invoiceSeq: state.invoiceSeq + 1,
-          journalSeq: state.journalSeq + 1,
+          journalSeq: state.journalSeq + (cogsJournal ? 2 : 1),
           arSeq,
         });
 
@@ -352,6 +451,7 @@ export const useErpStore = create<ErpState>()(
           category: input.category.trim() || 'Lainnya',
           unit: input.unit.trim() || 'Pcs',
           price: input.price,
+          cost: Math.max(0, input.cost || 0),
           minStock: Math.max(0, input.minStock || 0),
           batches: hasStock
             ? [{ batchNo: makeBatchNo(state.batchSeq), qty: input.initialQty, expiredDate: input.expiredDate }]
@@ -427,12 +527,12 @@ export const useErpStore = create<ErpState>()(
           batchSeq += 1;
         }
 
-        // Nilai sementara memakai harga jual (harga beli ditambahkan di Tahap 3)
+        // Nilai selisih memakai harga modal (cost)
         const journal = makeJournal(state.journalSeq, {
           description: `Stock opname ${product.name}: ${diff > 0 ? '+' : ''}${diff} ${product.unit} (${reason})`,
           debitAccount: diff < 0 ? '502 - Beban Selisih Stok' : '105 - Persediaan Barang',
           creditAccount: diff < 0 ? '105 - Persediaan Barang' : '502 - Beban Selisih Stok',
-          amount: Math.abs(diff) * product.price,
+          amount: Math.abs(diff) * product.cost,
           type: 'ADJUSTMENT',
         });
 
@@ -451,9 +551,189 @@ export const useErpStore = create<ErpState>()(
         };
       },
 
+      addSupplier: (input) => {
+        const state = get();
+        if (!input.name.trim()) return { ok: false, error: 'Nama supplier wajib diisi.' };
+        const supplier: Supplier = {
+          id: String(state.supplierSeq),
+          code: `SUP-${String(state.supplierSeq).padStart(2, '0')}`,
+          name: input.name.trim(),
+          phone: input.phone.trim(),
+        };
+        set({ suppliers: [...state.suppliers, supplier], supplierSeq: state.supplierSeq + 1 });
+        return { ok: true, message: `Supplier "${supplier.name}" ditambahkan (${supplier.code}).` };
+      },
+
+      createPO: (supplierId, lines, term, termDays) => {
+        const state = get();
+        const supplier = state.suppliers.find((s) => s.id === supplierId);
+        if (!supplier) return { ok: false, error: 'Pilih supplier terlebih dahulu.' };
+        if (lines.length === 0) return { ok: false, error: 'Tambahkan minimal satu barang.' };
+        if (new Set(lines.map((l) => l.productId)).size !== lines.length) {
+          return { ok: false, error: 'Ada barang yang sama di dua baris. Gabungkan jumlahnya.' };
+        }
+
+        const items: PoItem[] = [];
+        for (const l of lines) {
+          const product = state.products.find((p) => p.id === l.productId);
+          if (!product) return { ok: false, error: 'Ada barang yang tidak ditemukan.' };
+          if (!(l.qty > 0)) return { ok: false, error: `Jumlah "${product.name}" harus lebih dari 0.` };
+          if (!(l.unitCost > 0)) return { ok: false, error: `Harga beli "${product.name}" harus lebih dari 0.` };
+          items.push({ productId: product.id, name: product.name, unit: product.unit, qty: l.qty, unitCost: l.unitCost });
+        }
+
+        const now = new Date();
+        const po: PurchaseOrder = {
+          id: `PO-${now.getFullYear()}-${String(state.poSeq).padStart(3, '0')}`,
+          supplierId,
+          supplierName: supplier.name,
+          date: toDateStr(now),
+          receivedDate: null,
+          dueDate: null,
+          paymentTerm: term,
+          termDays: term === 'CREDIT' ? termDays : 0,
+          status: 'PENDING',
+          items,
+          totalAmount: items.reduce((s, i) => s + i.qty * i.unitCost, 0),
+          paidAmount: 0,
+        };
+
+        set({ purchaseOrders: [po, ...state.purchaseOrders], poSeq: state.poSeq + 1 });
+        return { ok: true, message: `${po.id} dikirim ke ${supplier.name}.` };
+      },
+
+      receivePO: (poId, expiries, payAccountId) => {
+        const state = get();
+        const po = state.purchaseOrders.find((o) => o.id === poId);
+        if (!po) return { ok: false, error: 'PO tidak ditemukan.' };
+        if (po.status !== 'PENDING') return { ok: false, error: 'PO ini sudah diproses.' };
+
+        for (const item of po.items) {
+          if (!expiries[item.productId]) return { ok: false, error: `Tanggal kadaluarsa "${item.name}" wajib diisi.` };
+        }
+
+        let account: CashAccount | undefined;
+        if (po.paymentTerm === 'CASH') {
+          account = state.accounts.find((a) => a.id === payAccountId);
+          if (!account) return { ok: false, error: 'Pilih sumber kas untuk pembayaran tunai.' };
+          if (account.balance < po.totalAmount) return { ok: false, error: `Saldo ${account.name} tidak cukup.` };
+        }
+
+        // Tambah batch + hitung harga modal rata-rata tertimbang
+        let batchSeq = state.batchSeq;
+        const products = state.products.map((p) => {
+          const items = po.items.filter((i) => i.productId === p.id);
+          if (items.length === 0) return p;
+          const batches = [...p.batches];
+          let qtyBefore = getTotalStock(p);
+          let cost = p.cost;
+          for (const it of items) {
+            batches.push({ batchNo: makeBatchNo(batchSeq), qty: it.qty, expiredDate: expiries[it.productId] });
+            batchSeq += 1;
+            cost = Math.round((qtyBefore * cost + it.qty * it.unitCost) / (qtyBefore + it.qty));
+            qtyBefore += it.qty;
+          }
+          return { ...p, batches, cost };
+        });
+
+        const now = new Date();
+        const isCash = po.paymentTerm === 'CASH';
+        const due = new Date(now);
+        due.setDate(due.getDate() + po.termDays);
+
+        const journal = makeJournal(state.journalSeq, {
+          description: `${isCash ? 'Pembelian tunai' : 'Pembelian kredit'} ${po.id} (${po.supplierName})`,
+          debitAccount: '105 - Persediaan Barang',
+          creditAccount: isCash && account ? `${account.id} - ${account.name}` : '201 - Utang Usaha (AP)',
+          amount: po.totalAmount,
+          type: 'PURCHASE',
+        });
+
+        set({
+          products,
+          batchSeq,
+          journals: [journal, ...state.journals],
+          journalSeq: state.journalSeq + 1,
+          accounts: account
+            ? state.accounts.map((a) => (a.id === account!.id ? { ...a, balance: a.balance - po.totalAmount } : a))
+            : state.accounts,
+          purchaseOrders: state.purchaseOrders.map((o) =>
+            o.id === poId
+              ? {
+                  ...o,
+                  status: 'RECEIVED' as const,
+                  receivedDate: toDateStr(now),
+                  dueDate: isCash ? toDateStr(now) : toDateStr(due),
+                  paidAmount: isCash ? o.totalAmount : 0,
+                }
+              : o
+          ),
+        });
+
+        return {
+          ok: true,
+          message: `${po.id} diterima. Stok bertambah${isCash ? ' dan dibayar tunai' : ', utang usaha tercatat'}. Jurnal ${journal.id} dibuat.`,
+        };
+      },
+
+      payPO: (poId, amount, accountId) => {
+        const state = get();
+        const po = state.purchaseOrders.find((o) => o.id === poId);
+        if (!po || po.status !== 'RECEIVED') return { ok: false, error: 'PO belum diterima atau tidak ditemukan.' };
+
+        const remaining = po.totalAmount - po.paidAmount;
+        if (remaining <= 0) return { ok: false, error: 'Utang PO ini sudah lunas.' };
+        if (!(amount > 0)) return { ok: false, error: 'Nominal pembayaran harus lebih dari 0.' };
+        if (amount > remaining) return { ok: false, error: `Nominal melebihi sisa utang (Rp ${remaining.toLocaleString('id-ID')}).` };
+
+        const account = state.accounts.find((a) => a.id === accountId);
+        if (!account) return { ok: false, error: 'Pilih sumber kas / bank.' };
+        if (account.balance < amount) return { ok: false, error: `Saldo ${account.name} tidak cukup.` };
+
+        const journal = makeJournal(state.journalSeq, {
+          description: `Pembayaran utang ${po.id} (${po.supplierName})`,
+          debitAccount: '201 - Utang Usaha (AP)',
+          creditAccount: `${account.id} - ${account.name}`,
+          amount,
+          type: 'PAYABLE',
+        });
+
+        set({
+          journals: [journal, ...state.journals],
+          journalSeq: state.journalSeq + 1,
+          accounts: state.accounts.map((a) => (a.id === accountId ? { ...a, balance: a.balance - amount } : a)),
+          purchaseOrders: state.purchaseOrders.map((o) => (o.id === poId ? { ...o, paidAmount: o.paidAmount + amount } : o)),
+        });
+
+        return { ok: true, message: `Pembayaran Rp ${amount.toLocaleString('id-ID')} untuk ${po.id} dicatat. Jurnal ${journal.id} dibuat.` };
+      },
+
+      cancelPO: (poId) => {
+        const state = get();
+        const po = state.purchaseOrders.find((o) => o.id === poId);
+        if (!po) return { ok: false, error: 'PO tidak ditemukan.' };
+        if (po.status !== 'PENDING') return { ok: false, error: 'Hanya PO yang belum diterima yang bisa dibatalkan.' };
+        set({ purchaseOrders: state.purchaseOrders.map((o) => (o.id === poId ? { ...o, status: 'CANCELLED' as const } : o)) });
+        return { ok: true, message: `${po.id} dibatalkan.` };
+      },
+
       resetDemoData: () => set(initialData()),
     }),
-    { name: 'toserba-erp-v1', version: 1 }
+    {
+      name: 'toserba-erp-v1',
+      version: 2,
+      // v2: produk mendapat field `cost` (harga modal). Data lama di browser dimigrasi otomatis.
+      migrate: (persisted, version) => {
+        const state = persisted as ErpState;
+        if (version < 2 && Array.isArray(state?.products)) {
+          state.products = state.products.map((p) => ({
+            ...p,
+            cost: p.cost ?? SEED_COSTS[p.id] ?? Math.round((p.price * 0.8) / 100) * 100,
+          }));
+        }
+        return state;
+      },
+    }
   )
 );
 
@@ -466,3 +746,11 @@ export function useHydrated() {
   useEffect(() => setHydrated(true), []);
   return hydrated;
 }
+
+/* =========================================================================
+   HELPER PURCHASING
+   ========================================================================= */
+
+/** Sisa utang (AP) sebuah PO. Hanya PO yang sudah diterima yang menimbulkan utang. */
+export const getPoRemaining = (po: PurchaseOrder) =>
+  po.status === 'RECEIVED' ? Math.max(0, po.totalAmount - po.paidAmount) : 0;

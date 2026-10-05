@@ -1,9 +1,8 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AlertCircle,
   Calendar,
   CheckCircle2,
   Edit3,
@@ -12,7 +11,6 @@ import {
   Pencil,
   Plus,
   Search,
-  X,
 } from 'lucide-react';
 import {
   useErpStore,
@@ -23,11 +21,7 @@ import {
   type Product,
   type ExpiryStatus,
 } from '@/stores/useErpStore';
-
-const rp = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
-
-const inputCls =
-  'w-full rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-canvas)] px-3 py-2 text-sm focus:border-[var(--color-gold)] focus:outline-none disabled:opacity-60';
+import { ErrorBox, Field, FormActions, ModalShell, inputCls, rp } from '@/components/ErpUi';
 
 const batchStyle: Record<ExpiryStatus, string> = {
   expired: 'bg-[var(--color-rust)] text-white border-transparent',
@@ -44,67 +38,6 @@ type Modal =
 
 type Filter = 'all' | 'low' | 'risk';
 
-/* ---------- komponen kecil ---------- */
-
-function ModalShell({ title, subtitle, onClose, children }: { title: string; subtitle?: string; onClose: () => void; children: ReactNode }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-ink)]/40 p-4 backdrop-blur-sm"
-    >
-      <motion.div
-        initial={{ scale: 0.96 }}
-        animate={{ scale: 1 }}
-        exit={{ scale: 0.96 }}
-        className="relative max-h-[90vh] w-full max-w-md space-y-4 overflow-y-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-xl"
-      >
-        <button aria-label="Tutup" onClick={onClose} className="absolute right-4 top-4 p-1 text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]">
-          <X className="h-4 w-4" />
-        </button>
-        <div>
-          <h3 className="font-display text-lg font-semibold">{title}</h3>
-          {subtitle && <p className="mt-0.5 text-xs text-[var(--color-ink-soft)]">{subtitle}</p>}
-        </div>
-        {children}
-      </motion.div>
-    </motion.div>
-  );
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return (
-    <div>
-      <label className="mb-1 block text-xs font-semibold text-[var(--color-ink-soft)]">{label}</label>
-      {children}
-      {hint && <p className="mt-1 text-[11px] text-[var(--color-ink-soft)]">{hint}</p>}
-    </div>
-  );
-}
-
-function ErrorBox({ text }: { text: string }) {
-  if (!text) return null;
-  return (
-    <p className="flex items-start gap-2 rounded-lg bg-[var(--color-rust-tint)] px-3 py-2 text-xs font-semibold text-[var(--color-rust)]">
-      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {text}
-    </p>
-  );
-}
-
-function FormActions({ onClose, submitLabel, onSubmit }: { onClose: () => void; submitLabel: string; onSubmit: () => void }) {
-  return (
-    <div className="flex gap-2 pt-2">
-      <button onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border)] py-2.5 text-sm font-semibold text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas-sunk)]">
-        Batal
-      </button>
-      <button onClick={onSubmit} className="flex-1 rounded-xl bg-[var(--color-pine)] py-2.5 text-sm font-bold text-white shadow-md hover:bg-[var(--color-pine-light)]">
-        {submitLabel}
-      </button>
-    </div>
-  );
-}
-
 /* ---------- modal: tambah / edit barang ---------- */
 
 function ProductModal({ product, categories, onClose, onDone }: { product?: Product; categories: string[]; onClose: () => void; onDone: (m: string) => void }) {
@@ -117,6 +50,7 @@ function ProductModal({ product, categories, onClose, onDone }: { product?: Prod
   const [category, setCategory] = useState(product?.category ?? '');
   const [unit, setUnit] = useState(product?.unit ?? 'Pcs');
   const [price, setPrice] = useState(product?.price ?? 0);
+  const [cost, setCost] = useState(product?.cost ?? 0);
   const [minStock, setMinStock] = useState(product?.minStock ?? 5);
   const [initialQty, setInitialQty] = useState(0);
   const [expiredDate, setExpiredDate] = useState('');
@@ -124,8 +58,8 @@ function ProductModal({ product, categories, onClose, onDone }: { product?: Prod
 
   const submit = () => {
     const res = isEdit
-      ? updateProduct(product!.id, { name, category: category.trim() || 'Lainnya', unit: unit.trim() || 'Pcs', price, minStock })
-      : addProduct({ sku, name, category, unit, price, minStock, initialQty, expiredDate });
+      ? updateProduct(product!.id, { name, category: category.trim() || 'Lainnya', unit: unit.trim() || 'Pcs', price, cost, minStock })
+      : addProduct({ sku, name, category, unit, price, cost, minStock, initialQty, expiredDate });
     if (!res.ok) return setError(res.error);
     onDone(res.message);
   };
@@ -161,6 +95,9 @@ function ProductModal({ product, categories, onClose, onDone }: { product?: Prod
         </div>
 
         <div className="grid grid-cols-2 gap-3">
+          <Field label="Harga beli / modal (Rp)">
+            <input type="number" className={inputCls} value={cost || ''} onChange={(e) => setCost(Number(e.target.value))} />
+          </Field>
           <Field label="Harga jual (Rp)">
             <input type="number" className={inputCls} value={price || ''} onChange={(e) => setPrice(Number(e.target.value))} />
           </Field>
@@ -313,7 +250,7 @@ export default function InventoryPage() {
   const stats = useMemo(
     () => ({
       sku: products.length,
-      value: products.reduce((s, p) => s + getTotalStock(p) * p.price, 0),
+      value: products.reduce((s, p) => s + getTotalStock(p) * p.cost, 0),
       low: products.filter(isLow).length,
       risk: products.filter(isRisk).length,
     }),
@@ -357,7 +294,7 @@ export default function InventoryPage() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[
           { label: 'Jenis barang', value: String(stats.sku), tone: 'text-[var(--color-pine)]' },
-          { label: 'Nilai stok (harga jual)', value: rp(stats.value), tone: 'text-[var(--color-pine)]' },
+          { label: 'Nilai stok (modal)', value: rp(stats.value), tone: 'text-[var(--color-pine)]' },
           { label: 'Stok menipis', value: String(stats.low), tone: stats.low ? 'text-[var(--color-gold)]' : 'text-[var(--color-ink)]' },
           { label: 'Barang berisiko kadaluarsa', value: String(stats.risk), tone: stats.risk ? 'text-[var(--color-rust)]' : 'text-[var(--color-ink)]' },
         ].map((c) => (
