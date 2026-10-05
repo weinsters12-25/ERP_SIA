@@ -72,7 +72,8 @@ export default function PosPage() {
   const openPayment = () => {
     if (cart.length === 0) return;
     setError('');
-    setReceived(total);
+    setReceived(0); // kasir mengetik sendiri nominal uang dari pembeli
+    setMethod('CASH');
     setPayOpen(true);
   };
 
@@ -87,6 +88,7 @@ export default function PosPage() {
         openPayment();
       } else if (e.key === 'Escape') {
         setPayOpen(false);
+        setReceipt(null);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -104,6 +106,8 @@ export default function PosPage() {
     });
   };
 
+  const canConfirm = method === 'CASH' ? received >= total && total > 0 : customerName.trim().length > 0;
+
   const handleConfirm = () => {
     const result = sellItems(
       cart.map((i) => ({ id: i.id, name: i.name, qty: i.qty })),
@@ -120,14 +124,8 @@ export default function PosPage() {
     clearCart();
     setCustomerName('');
     setPhone('');
+    setReceived(0);
   };
-
-  const quickAmounts = useMemo(() => {
-    const set = new Set([total, Math.ceil(total / 50000) * 50000, Math.ceil(total / 100000) * 100000]);
-    return Array.from(set).filter((v) => v > 0);
-  }, [total]);
-
-  const canConfirm = method === 'CASH' ? received >= total : customerName.trim().length > 0;
 
   if (!hydrated) {
     return (
@@ -388,30 +386,32 @@ export default function PosPage() {
               {method === 'CASH' ? (
                 <div className="space-y-3">
                   <div>
-                    <label className="mb-1 block text-xs font-semibold text-[var(--color-ink-soft)]">Uang diterima (Rp)</label>
+                    <label className="mb-1 block text-xs font-semibold text-[var(--color-ink-soft)]">
+                      Uang diterima dari pembeli (Rp)
+                    </label>
                     <input
-                      type="number"
-                      value={received || ''}
-                      onChange={(e) => setReceived(Number(e.target.value))}
+                      autoFocus
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="Ketik nominal uang"
+                      value={received ? received.toLocaleString('id-ID') : ''}
+                      onChange={(e) => setReceived(Number(e.target.value.replace(/\D/g, '')))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && canConfirm) handleConfirm();
+                      }}
                       className="w-full rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-canvas)] px-3 py-2.5 text-lg font-bold focus:border-[var(--color-gold)] focus:outline-none"
                     />
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {quickAmounts.map((v) => (
-                      <button
-                        key={v}
-                        onClick={() => setReceived(v)}
-                        className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold hover:bg-[var(--color-canvas-sunk)]"
-                      >
-                        {v === total ? 'Uang pas' : rp(v)}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex items-center justify-between rounded-xl bg-[var(--color-pine-tint)] px-4 py-3 text-sm">
-                    <span className="text-[var(--color-pine)]">Kembalian</span>
-                    <span className="font-display text-lg font-semibold text-[var(--color-pine)]">
-                      {rp(Math.max(0, received - total))}
-                    </span>
+
+                  <div
+                    className={`flex items-center justify-between rounded-xl px-4 py-3 text-sm ${
+                      received >= total
+                        ? 'bg-[var(--color-pine-tint)] text-[var(--color-pine)]'
+                        : 'bg-[var(--color-rust-tint)] text-[var(--color-rust)]'
+                    }`}
+                  >
+                    <span>{received >= total ? 'Kembalian' : 'Uang kurang'}</span>
+                    <span className="font-display text-lg font-semibold">{rp(Math.abs(received - total))}</span>
                   </div>
                 </div>
               ) : (
