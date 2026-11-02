@@ -16,6 +16,7 @@ import {
   ChevronDown,
   Leaf,
 } from 'lucide-react';
+import { useDemoSeed } from '@/stores/useErpStore';
 
 const navItems = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -29,6 +30,9 @@ const navItems = [
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [notifOpen, setNotifOpen] = useState(false);
+
+  // Muat data dari scripts/seed-demo.ts (public/demo-data.json) bila ada & belum pernah dimuat
+  useDemoSeed();
 
   const activeItem = navItems.find((i) => i.href === pathname);
 
@@ -99,16 +103,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </nav>
         </div>
 
-        {/* Status Koneksi Database */}
-        <div className="relative z-10 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
-          <div className="flex items-center gap-2.5">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--color-gold-light)] opacity-60" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--color-gold-light)]" />
-            </span>
-            <span className="font-medium text-white/80">Supabase Connected</span>
-          </div>
-        </div>
+        
       </aside>
 
       {/* ============ KONTEN UTAMA ============ */}

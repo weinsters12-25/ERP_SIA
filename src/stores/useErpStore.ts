@@ -125,6 +125,22 @@ export interface PoLineInput {
   unitCost: number;
 }
 
+/** Seluruh data bisnis (tanpa fungsi) — format yang sama dengan scripts/seed-demo.ts */
+export interface ErpData {
+  products: Product[];
+  journals: Journal[];
+  receivables: Receivable[];
+  accounts: CashAccount[];
+  suppliers: Supplier[];
+  purchaseOrders: PurchaseOrder[];
+  invoiceSeq: number;
+  journalSeq: number;
+  arSeq: number;
+  batchSeq: number;
+  poSeq: number;
+  supplierSeq: number;
+}
+
 /* =========================================================================
    HELPER TANGGAL & STOK
    ========================================================================= */
@@ -166,101 +182,38 @@ export const getNearestBatch = (p: Product): Batch | undefined =>
     .sort((a, b) => a.expiredDate.localeCompare(b.expiredDate))[0];
 
 /* =========================================================================
-   DATA AWAL (DEMO) — nanti diganti query Supabase
+   DATA AWAL — KOSONG. Data demo dibuat lewat: npx tsx scripts/seed-demo.ts
    ========================================================================= */
 
-const SEED_PRODUCTS: Product[] = [
-  {
-    id: '1', sku: 'BRS-001', name: 'Beras Setra Ramos 5kg', category: 'Beras & Biji', unit: 'Pouch', price: 72000, cost: 62000, minStock: 10,
-    batches: [
-      { batchNo: 'BATCH-2026-01', qty: 15, expiredDate: '2026-10-15' },
-      { batchNo: 'BATCH-2026-05', qty: 30, expiredDate: '2027-05-20' },
-    ],
-  },
-  {
-    id: '2', sku: 'MYK-001', name: 'Minyak Goreng Bimoli 2L', category: 'Minyak & Bumbu', unit: 'Pouch', price: 36000, cost: 30000, minStock: 15,
-    batches: [{ batchNo: 'BATCH-2026-03', qty: 8, expiredDate: '2026-11-01' }],
-  },
-  {
-    id: '3', sku: 'GLA-001', name: 'Gula Pasir Gulaku 1kg', category: 'Sembako', unit: 'Kg', price: 17500, cost: 15000, minStock: 20,
-    batches: [{ batchNo: 'BATCH-2026-02', qty: 120, expiredDate: '2028-01-10' }],
-  },
-  {
-    id: '4', sku: 'TLR-001', name: 'Telur Ayam Negeri (Peti)', category: 'Sembako Basah', unit: 'Kg', price: 28000, cost: 24000, minStock: 10,
-    batches: [{ batchNo: 'BATCH-2026-09', qty: 25, expiredDate: '2026-10-12' }],
-  },
-  {
-    id: '5', sku: 'TRG-001', name: 'Tepung Terigu Segitiga Biru 1kg', category: 'Sembako', unit: 'Pcs', price: 13000, cost: 11000, minStock: 20,
-    batches: [{ batchNo: 'BATCH-2026-06', qty: 60, expiredDate: '2027-08-20' }],
-  },
-  {
-    id: '6', sku: 'SMR-001', name: 'Indomie Goreng Spesial (Dus)', category: 'Mie & Kaleng', unit: 'Dus', price: 112000, cost: 90000, minStock: 10,
-    batches: [{ batchNo: 'BATCH-2026-07', qty: 40, expiredDate: '2027-04-01' }],
-  },
+/** Struktur akun kas/bank (bukan data dummy): saldo awal 0. */
+const baseAccounts = (): CashAccount[] => [
+  { id: '101', name: 'Kas Kasir POS', balance: 0, type: 'CASH' },
+  { id: '102', name: 'Kas Kecil Operasional', balance: 0, type: 'CASH' },
+  { id: '103', name: 'Bank BCA Toko', balance: 0, type: 'BANK' },
 ];
 
-const SEED_JOURNALS: Journal[] = [
-  { id: 'JRN-2026-089', date: '2026-09-26 14:20', description: 'Penjualan Kasir POS (Nota #INV-1092)', debitAccount: '101 - Kas Kasir POS', creditAccount: '401 - Pendapatan Penjualan', amount: 325000, type: 'SALES' },
-  { id: 'JRN-2026-088', date: '2026-09-26 11:00', description: 'Pembayaran Listrik & Air Toko September', debitAccount: '501 - Beban Operasional', creditAccount: '102 - Kas Kecil Operasional', amount: 450000, type: 'EXPENSE' },
-  { id: 'JRN-2026-087', date: '2026-09-25 16:30', description: 'Pelunasan Piutang (Toko Kelontong Bu Sri)', debitAccount: '103 - Bank BCA Toko', creditAccount: '104 - Piutang Usaha (AR)', amount: 1250000, type: 'RECEIVABLE' },
-  { id: 'JRN-2026-086', date: '2026-09-25 09:15', description: 'Pembayaran Utang Distributor (PO-2026-002)', debitAccount: '201 - Utang Usaha (AP)', creditAccount: '103 - Bank BCA Toko', amount: 7200000, type: 'PAYABLE' },
-];
-
-const SEED_RECEIVABLES: Receivable[] = [
-  { id: 'AR-2026-001', invoiceNo: 'INV-1070', customerName: 'Toko Kelontong Bu Sri', phone: '081234567890', invoiceDate: '2026-09-10', dueDate: '2026-09-24', totalAmount: 1250000, paidAmount: 0 },
-  { id: 'AR-2026-002', invoiceNo: 'INV-1081', customerName: 'Warung Makan Pak Joko', phone: '085711223344', invoiceDate: '2026-09-18', dueDate: '2026-10-08', totalAmount: 850000, paidAmount: 200000 },
-  { id: 'AR-2026-003', invoiceNo: 'INV-1055', customerName: 'Catering Berkah', phone: '081987654321', invoiceDate: '2026-09-01', dueDate: '2026-09-15', totalAmount: 2100000, paidAmount: 2100000 },
-];
-
-const SEED_COSTS: Record<string, number> = { '1': 62000, '2': 30000, '3': 15000, '4': 24000, '5': 11000, '6': 90000 };
-
-const SEED_SUPPLIERS: Supplier[] = [
-  { id: '1', code: 'SUP-IND-01', name: 'PT Indofood Sukses Makmur', phone: '081234567890' },
-  { id: '2', code: 'SUP-BRS-02', name: 'CV Beras Utama Jaya', phone: '081987654321' },
-  { id: '3', code: 'SUP-BIM-03', name: 'Distributor Minyak Bimoli', phone: '085211223344' },
-];
-
-const SEED_POS: PurchaseOrder[] = [
-  {
-    id: 'PO-2026-001', supplierId: '2', supplierName: 'CV Beras Utama Jaya', date: '2026-09-20', receivedDate: '2026-09-21',
-    dueDate: '2026-10-20', paymentTerm: 'CREDIT', termDays: 30, status: 'RECEIVED', paidAmount: 0, totalAmount: 12400000,
-    items: [{ productId: '1', name: 'Beras Setra Ramos 5kg', unit: 'Pouch', qty: 200, unitCost: 62000 }],
-  },
-  {
-    id: 'PO-2026-002', supplierId: '3', supplierName: 'Distributor Minyak Bimoli', date: '2026-09-22', receivedDate: '2026-09-23',
-    dueDate: '2026-10-06', paymentTerm: 'CREDIT', termDays: 14, status: 'RECEIVED', paidAmount: 7200000, totalAmount: 7200000,
-    items: [{ productId: '2', name: 'Minyak Goreng Bimoli 2L', unit: 'Pouch', qty: 240, unitCost: 30000 }],
-  },
-  {
-    id: 'PO-2026-003', supplierId: '1', supplierName: 'PT Indofood Sukses Makmur', date: '2026-09-25', receivedDate: null,
-    dueDate: null, paymentTerm: 'CREDIT', termDays: 30, status: 'PENDING', paidAmount: 0, totalAmount: 4500000,
-    items: [{ productId: '6', name: 'Indomie Goreng Spesial (Dus)', unit: 'Dus', qty: 50, unitCost: 90000 }],
-  },
-];
-
-const SEED_ACCOUNTS: CashAccount[] = [
-  { id: '101', name: 'Kas Kasir POS', balance: 3250000, type: 'CASH' },
-  { id: '102', name: 'Kas Kecil Operasional', balance: 1500000, type: 'CASH' },
-  { id: '103', name: 'Bank BCA Toko', balance: 45800000, type: 'BANK' },
-];
+const initialData = (): ErpData => ({
+  products: [],
+  journals: [],
+  receivables: [],
+  accounts: baseAccounts(),
+  suppliers: [],
+  purchaseOrders: [],
+  invoiceSeq: 1,
+  journalSeq: 1,
+  arSeq: 1,
+  batchSeq: 1,
+  poSeq: 1,
+  supplierSeq: 1,
+});
 
 /* =========================================================================
    STORE
    ========================================================================= */
 
-interface ErpState {
-  products: Product[];
-  journals: Journal[];
-  receivables: Receivable[];
-  accounts: CashAccount[];
-  suppliers: Supplier[];
-  purchaseOrders: PurchaseOrder[];
-  invoiceSeq: number;
-  journalSeq: number;
-  arSeq: number;
-  batchSeq: number;
-  poSeq: number;
-  supplierSeq: number;
+interface ErpState extends ErpData {
+  /** ID seed terakhir yang dimuat dari public/demo-data.json (mencegah muat ulang). */
+  seedId: string | null;
 
   /** Proses penjualan POS: potong stok FEFO, buat jurnal, (opsional) buat piutang. */
   sellItems: (lines: SaleLine[], payment: PaymentInput) => SaleResult;
@@ -280,23 +233,18 @@ interface ErpState {
   payPO: (poId: string, amount: number, accountId: string) => ActionResult;
   cancelPO: (poId: string) => ActionResult;
 
+  /** Sales (piutang): terima pembayaran bon pelanggan, masuk ke kas/bank + jurnal. */
+  payReceivable: (arId: string, amount: number, accountId: string) => ActionResult;
+
+  /** Finance: catat biaya operasional, kurangi kas/bank + jurnal. */
+  addExpense: (title: string, amount: number, accountId: string) => ActionResult;
+
+  /** Muat dataset dari script seed (public/demo-data.json). */
+  importData: (seedId: string, data: ErpData) => void;
+
+  /** Kosongkan seluruh data bisnis. */
   resetDemoData: () => void;
 }
-
-const initialData = () => ({
-  products: SEED_PRODUCTS,
-  journals: SEED_JOURNALS,
-  receivables: SEED_RECEIVABLES,
-  accounts: SEED_ACCOUNTS,
-  invoiceSeq: 1093,
-  journalSeq: 90,
-  arSeq: 4,
-  batchSeq: 10,
-  suppliers: SEED_SUPPLIERS,
-  purchaseOrders: SEED_POS,
-  poSeq: 4,
-  supplierSeq: 4,
-});
 
 const makeBatchNo = (seq: number) => `BATCH-${new Date().getFullYear()}-${String(seq).padStart(2, '0')}`;
 
@@ -313,6 +261,7 @@ export const useErpStore = create<ErpState>()(
   persist(
     (set, get) => ({
       ...initialData(),
+      seedId: null,
 
       sellItems: (lines, payment) => {
         if (lines.length === 0) return { ok: false, error: 'Keranjang kosong.' };
@@ -717,21 +666,98 @@ export const useErpStore = create<ErpState>()(
         return { ok: true, message: `${po.id} dibatalkan.` };
       },
 
+      payReceivable: (arId, amount, accountId) => {
+        const state = get();
+        const ar = state.receivables.find((r) => r.id === arId);
+        if (!ar) return { ok: false, error: 'Data piutang tidak ditemukan.' };
+
+        const remaining = getArRemaining(ar);
+        if (remaining <= 0) return { ok: false, error: 'Piutang ini sudah lunas.' };
+        if (!(amount > 0)) return { ok: false, error: 'Nominal pembayaran harus lebih dari 0.' };
+        if (amount > remaining) return { ok: false, error: `Nominal melebihi sisa bon (Rp ${remaining.toLocaleString('id-ID')}).` };
+
+        const account = state.accounts.find((a) => a.id === accountId);
+        if (!account) return { ok: false, error: 'Pilih kas / bank penerima.' };
+
+        const journal = makeJournal(state.journalSeq, {
+          description: `Pelunasan piutang (${ar.customerName}) - ${ar.invoiceNo}`,
+          debitAccount: `${account.id} - ${account.name}`,
+          creditAccount: '104 - Piutang Usaha (AR)',
+          amount,
+          type: 'RECEIVABLE',
+        });
+
+        set({
+          journals: [journal, ...state.journals],
+          journalSeq: state.journalSeq + 1,
+          accounts: state.accounts.map((a) => (a.id === accountId ? { ...a, balance: a.balance + amount } : a)),
+          receivables: state.receivables.map((r) => (r.id === arId ? { ...r, paidAmount: r.paidAmount + amount } : r)),
+        });
+
+        return { ok: true, message: `Pembayaran piutang ${ar.customerName} berhasil diproses! Jurnal ${journal.id} dibuat.` };
+      },
+
+      addExpense: (title, amount, accountId) => {
+        const state = get();
+        if (!title.trim()) return { ok: false, error: 'Keterangan biaya wajib diisi.' };
+        if (!(amount > 0)) return { ok: false, error: 'Nominal biaya harus lebih dari 0.' };
+
+        const account = state.accounts.find((a) => a.id === accountId);
+        if (!account) return { ok: false, error: 'Pilih sumber kas / bank.' };
+        if (account.balance < amount) return { ok: false, error: `Saldo ${account.name} tidak cukup.` };
+
+        const journal = makeJournal(state.journalSeq, {
+          description: title.trim(),
+          debitAccount: '501 - Beban Operasional',
+          creditAccount: `${account.id} - ${account.name}`,
+          amount,
+          type: 'EXPENSE',
+        });
+
+        set({
+          journals: [journal, ...state.journals],
+          journalSeq: state.journalSeq + 1,
+          accounts: state.accounts.map((a) => (a.id === accountId ? { ...a, balance: a.balance - amount } : a)),
+        });
+
+        return { ok: true, message: `Biaya operasional tercatat dan jurnal ${journal.id} terbuat!` };
+      },
+
+      importData: (seedId, data) => {
+        set({
+          products: data.products ?? [],
+          journals: data.journals ?? [],
+          receivables: data.receivables ?? [],
+          accounts: data.accounts?.length ? data.accounts : baseAccounts(),
+          suppliers: data.suppliers ?? [],
+          purchaseOrders: data.purchaseOrders ?? [],
+          invoiceSeq: data.invoiceSeq ?? 1,
+          journalSeq: data.journalSeq ?? 1,
+          arSeq: data.arSeq ?? 1,
+          batchSeq: data.batchSeq ?? 1,
+          poSeq: data.poSeq ?? 1,
+          supplierSeq: data.supplierSeq ?? 1,
+          seedId,
+        });
+      },
+
       resetDemoData: () => set(initialData()),
     }),
     {
       name: 'toserba-erp-v1',
-      version: 2,
-      // v2: produk mendapat field `cost` (harga modal). Data lama di browser dimigrasi otomatis.
+      version: 3,
+      // v3: seluruh data dummy lama dihapus. Data lama di browser dikosongkan sekali,
+      //     termasuk key localStorage lama milik halaman Sales.
       migrate: (persisted, version) => {
-        const state = persisted as ErpState;
-        if (version < 2 && Array.isArray(state?.products)) {
-          state.products = state.products.map((p) => ({
-            ...p,
-            cost: p.cost ?? SEED_COSTS[p.id] ?? Math.round((p.price * 0.8) / 100) * 100,
-          }));
+        if (version < 3) {
+          try {
+            localStorage.removeItem('toserba_receivables_data');
+          } catch {
+            /* abaikan */
+          }
+          return { ...initialData(), seedId: null } as unknown as ErpState;
         }
-        return state;
+        return persisted as ErpState;
       },
     }
   )
@@ -747,6 +773,30 @@ export function useHydrated() {
   return hydrated;
 }
 
+/**
+ * Memuat public/demo-data.json (dibuat oleh `npx tsx scripts/seed-demo.ts`)
+ * bila seedId-nya belum pernah dimuat. Jika file tidak ada, tidak terjadi apa-apa.
+ */
+export function useDemoSeed() {
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/demo-data.json', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((file) => {
+        if (cancelled || !file?.seedId || !file?.data) return;
+        const state = useErpStore.getState();
+        if (state.seedId === file.seedId) return;
+        state.importData(file.seedId, file.data as ErpData);
+      })
+      .catch(() => {
+        /* tidak ada file demo — abaikan */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+}
+
 /* =========================================================================
    HELPER PURCHASING
    ========================================================================= */
@@ -754,3 +804,16 @@ export function useHydrated() {
 /** Sisa utang (AP) sebuah PO. Hanya PO yang sudah diterima yang menimbulkan utang. */
 export const getPoRemaining = (po: PurchaseOrder) =>
   po.status === 'RECEIVED' ? Math.max(0, po.totalAmount - po.paidAmount) : 0;
+
+/* =========================================================================
+   HELPER PIUTANG (AR)
+   ========================================================================= */
+
+export type ReceivableStatus = 'OVERDUE' | 'DUE_SOON' | 'PAID';
+
+export const getArRemaining = (ar: Receivable) => Math.max(0, ar.totalAmount - ar.paidAmount);
+
+export function getArStatus(ar: Receivable): ReceivableStatus {
+  if (getArRemaining(ar) === 0) return 'PAID';
+  return getDaysLeft(ar.dueDate) < 0 ? 'OVERDUE' : 'DUE_SOON';
+}

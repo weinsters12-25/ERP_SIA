@@ -1,88 +1,57 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  BookOpen, 
-  Plus, 
-  Search, 
-  Wallet, 
-  Building, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
-  CheckCircle2, 
-  X, 
-  DollarSign, 
-  Receipt 
-} from 'lucide-react';
-
-// Mock Data Akun Kas & Bank
-const MOCK_ACCOUNTS = [
-  { id: '101', name: 'Kas Kasir POS', balance: 3250000, type: 'CASH' },
-  { id: '102', name: 'Kas Kecil Operasional', balance: 1500000, type: 'CASH' },
-  { id: '103', name: 'Bank BCA Toko', balance: 45800000, type: 'BANK' },
-];
-
-// Mock Data Jurnal Umum Otomatis
-const MOCK_JOURNALS = [
-  {
-    id: 'JRN-2026-089',
-    date: '2026-09-26 14:20',
-    description: 'Penjualan Kasir POS (Nota #INV-1092)',
-    debitAccount: '101 - Kas Kasir POS',
-    creditAccount: '401 - Pendapatan Penjualan',
-    amount: 325000,
-    type: 'SALES',
-  },
-  {
-    id: 'JRN-2026-088',
-    date: '2026-09-26 11:00',
-    description: 'Pembayaran Listrik & Air Toko September',
-    debitAccount: '501 - Beban Operasional',
-    creditAccount: '102 - Kas Kecil Operasional',
-    amount: 450000,
-    type: 'EXPENSE',
-  },
-  {
-    id: 'JRN-2026-087',
-    date: '2026-09-25 16:30',
-    description: 'Pelunasan Piutang (Toko Kelontong Bu Sri)',
-    debitAccount: '103 - Bank BCA Toko',
-    creditAccount: '103 - Piutang Usaha (AR)',
-    amount: 1250000,
-    type: 'RECEIVABLE',
-  },
-  {
-    id: 'JRN-2026-086',
-    date: '2026-09-25 09:15',
-    description: 'Pembayaran Utang Distributor (PO-2026-002)',
-    debitAccount: '201 - Utang Usaha (AP)',
-    creditAccount: '103 - Bank BCA Toko',
-    amount: 7200000,
-    type: 'PAYABLE',
-  },
-];
+import { Plus, Search, Wallet, Building, CheckCircle2, X, Receipt } from 'lucide-react';
+import { useErpStore, useHydrated } from '@/stores/useErpStore';
+import { ErrorBox } from '@/components/ErpUi';
 
 export default function FinancePage() {
+  const hydrated = useHydrated();
+  const accounts = useErpStore((s) => s.accounts);
+  const journals = useErpStore((s) => s.journals);
+  const addExpense = useErpStore((s) => s.addExpense);
+
   const [search, setSearch] = useState('');
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [expenseTitle, setExpenseTitle] = useState('');
   const [expenseAmount, setExpenseAmount] = useState<number>(0);
   const [selectedSourceAccount, setSelectedSourceAccount] = useState('102');
+  const [error, setError] = useState('');
   const [isSuccessAlert, setIsSuccessAlert] = useState(false);
+  const [alertMessage, setAlertMessage] = useState('');
 
-  const filteredJournals = MOCK_JOURNALS.filter(
-    (j) =>
-      j.description.toLowerCase().includes(search.toLowerCase()) ||
-      j.id.toLowerCase().includes(search.toLowerCase()) ||
-      j.debitAccount.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredJournals = useMemo(() => {
+    const q = search.toLowerCase();
+    return journals.filter(
+      (j) =>
+        j.description.toLowerCase().includes(q) ||
+        j.id.toLowerCase().includes(q) ||
+        j.debitAccount.toLowerCase().includes(q) ||
+        j.creditAccount.toLowerCase().includes(q)
+    );
+  }, [journals, search]);
+
+  const openModal = () => {
+    setError('');
+    setExpenseTitle('');
+    setExpenseAmount(0);
+    setIsExpenseModalOpen(true);
+  };
 
   const handleSaveExpense = () => {
+    const res = addExpense(expenseTitle, expenseAmount, selectedSourceAccount);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
     setIsExpenseModalOpen(false);
+    setAlertMessage(res.message);
     setIsSuccessAlert(true);
     setTimeout(() => setIsSuccessAlert(false), 2500);
   };
+
+  if (!hydrated) return <p className="text-sm text-slate-500">Memuat data keuangan…</p>;
 
   return (
     <div className="space-y-6 relative z-10">
@@ -95,17 +64,17 @@ export default function FinancePage() {
           </p>
         </div>
         <button
-          onClick={() => setIsExpenseModalOpen(true)}
+          onClick={openModal}
           className="flex items-center justify-center gap-2 px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs shadow-md transition-all"
         >
           <Plus className="h-4 w-4" />
-          <span>+ Catat Biaya Operasional</span>
+          <span>Catat Biaya Operasional</span>
         </button>
       </div>
 
       {/* Kartu Saldo Kas & Bank */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        {MOCK_ACCOUNTS.map((acc) => (
+        {accounts.map((acc) => (
           <div key={acc.id} className="glass-card-light rounded-2xl p-5 relative overflow-hidden">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500 font-mono">{acc.id}</span>
@@ -158,6 +127,15 @@ export default function FinancePage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
+              {filteredJournals.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-14 text-center text-slate-400">
+                    {journals.length === 0
+                      ? 'Belum ada jurnal. Jurnal terbentuk otomatis dari transaksi POS, PO, dan biaya operasional.'
+                      : 'Tidak ada jurnal yang cocok dengan pencarian.'}
+                  </td>
+                </tr>
+              )}
               {filteredJournals.map((j) => (
                 <tr key={j.id} className="hover:bg-slate-50/80 transition-colors">
                   <td className="py-3.5 px-4 font-semibold text-slate-800">
@@ -239,7 +217,7 @@ export default function FinancePage() {
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Nominal Biaya (Rp)</label>
                   <input
                     type="number"
-                    value={expenseAmount}
+                    value={expenseAmount || ''}
                     onChange={(e) => setExpenseAmount(Number(e.target.value))}
                     className="w-full rounded-xl border border-slate-300 bg-slate-50 py-2 px-3 text-xs font-bold text-slate-800 focus:border-rose-500 focus:outline-none"
                   />
@@ -252,13 +230,15 @@ export default function FinancePage() {
                     onChange={(e) => setSelectedSourceAccount(e.target.value)}
                     className="w-full rounded-xl border border-slate-300 bg-slate-50 py-2 px-3 text-xs text-slate-800 focus:border-rose-500 focus:outline-none"
                   >
-                    {MOCK_ACCOUNTS.map((a) => (
+                    {accounts.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.id} - {a.name} (Saldo: Rp {a.balance.toLocaleString('id-ID')})
                       </option>
                     ))}
                   </select>
                 </div>
+
+                <ErrorBox text={error} />
               </div>
 
               <div className="flex gap-2 pt-4">
@@ -290,7 +270,7 @@ export default function FinancePage() {
             className="fixed bottom-6 right-6 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl z-50 flex items-center gap-3 text-xs font-semibold"
           >
             <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-            <span>Biaya operasional tercatat dan jurnal otomatis terbuat!</span>
+            <span>{alertMessage}</span>
           </motion.div>
         )}
       </AnimatePresence>

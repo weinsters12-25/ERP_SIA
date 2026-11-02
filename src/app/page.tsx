@@ -1,10 +1,19 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import gsap from 'gsap';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import DashboardLayout from './(dashboard)/layout';
 import { TrendingUp, TrendingDown, PackageX, ShoppingBag } from 'lucide-react';
+import {
+  useErpStore,
+  useHydrated,
+  getArRemaining,
+  getExpiryStatus,
+  toDateStr,
+} from '@/stores/useErpStore';
+import { rp } from '@/components/ErpUi';
 
 interface StatProps {
   title: string;
@@ -37,16 +46,16 @@ function StatCard({ title, value, prefix = 'Rp ', icon }: StatProps) {
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ scale: 1.02 }}
-      className="relative overflow-hidden rounded-2xl border border-brand-primary/30 bg-brand-surface/80 p-6 shadow-xl backdrop-blur-md"
+      className="glass-card-light relative overflow-hidden rounded-2xl p-6"
     >
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{title}</p>
-          <span ref={numberRef} className="mt-2 block text-2xl font-black text-brand-accent">
+          <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-soft)]">{title}</p>
+          <span ref={numberRef} className="font-display mt-2 block text-2xl font-semibold text-[var(--color-pine)]">
             {prefix}0
           </span>
         </div>
-        <div className="rounded-xl bg-brand-primary/20 p-3 text-brand-accent border border-brand-accent/20">
+        <div className="rounded-xl border border-[var(--color-pine)]/15 bg-[var(--color-pine-tint)] p-3 text-[var(--color-pine)]">
           {icon}
         </div>
       </div>
@@ -55,53 +64,107 @@ function StatCard({ title, value, prefix = 'Rp ', icon }: StatProps) {
 }
 
 export default function HomePage() {
+  const hydrated = useHydrated();
+  const journals = useErpStore((s) => s.journals);
+  const purchaseOrders = useErpStore((s) => s.purchaseOrders);
+  const receivables = useErpStore((s) => s.receivables);
+  const products = useErpStore((s) => s.products);
+
+  const stats = useMemo(() => {
+    const today = toDateStr(new Date());
+
+    const salesToday = journals
+      .filter((j) => j.type === 'SALES' && j.date.startsWith(today))
+      .reduce((s, j) => s + j.amount, 0);
+
+    const poToday = purchaseOrders
+      .filter((o) => o.status !== 'CANCELLED' && o.date === today)
+      .reduce((s, o) => s + o.totalAmount, 0);
+
+    const arOpen = receivables.reduce((s, r) => s + getArRemaining(r), 0);
+
+    const nearExpiry = products.reduce(
+      (s, p) =>
+        s +
+        p.batches.filter((b) => {
+          if (b.qty <= 0) return false;
+          const st = getExpiryStatus(b.expiredDate);
+          return st === 'kritis' || st === 'peringatan';
+        }).length,
+      0
+    );
+
+    return { salesToday, poToday, arOpen, nearExpiry };
+  }, [journals, purchaseOrders, receivables, products]);
+
+  const latest = journals.slice(0, 5);
+
   return (
     <DashboardLayout>
       <div className="space-y-8">
         {/* Welcome Banner */}
-        <div className="rounded-2xl border border-brand-primary/30 bg-nature-gradient p-6 text-brand-dark shadow-lg flex justify-between items-center">
+        <div className="flex items-center justify-between rounded-2xl bg-[var(--color-pine)] p-6 text-white shadow-lg">
           <div>
-            <h1 className="text-2xl font-black">Selamat Datang di Toserba ERP</h1>
-            <p className="text-sm font-medium mt-1 opacity-90">
+            <h1 className="font-display text-2xl font-semibold">Selamat Datang di Toserba ERP</h1>
+            <p className="mt-1 text-sm font-medium opacity-80">
               Sistem Manajemen Stok FEFO, Kasir POS, dan Keuangan Toko Sembako.
             </p>
           </div>
-          <button className="px-4 py-2 bg-brand-dark text-brand-accent font-bold rounded-xl text-sm hover:bg-black transition-colors">
+          <Link
+            href="/pos"
+            className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[var(--color-pine)] transition-colors hover:bg-[var(--color-gold-tint)]"
+          >
             + Transaksi Baru
-          </button>
+          </Link>
         </div>
 
         {/* Ringkasan Statistik */}
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="Penjualan Hari Ini"
-            value={3250000}
+            value={hydrated ? stats.salesToday : 0}
             icon={<TrendingUp className="h-6 w-6" />}
           />
           <StatCard
             title="Pengeluaran (PO)"
-            value={1850000}
+            value={hydrated ? stats.poToday : 0}
             icon={<TrendingDown className="h-6 w-6" />}
           />
           <StatCard
             title="Piutang Belum Lunas"
-            value={620000}
+            value={hydrated ? stats.arOpen : 0}
             icon={<ShoppingBag className="h-6 w-6" />}
           />
           <StatCard
-            title="Item Mendekati Expired"
-            value={8}
+            title="Batch Mendekati Expired"
+            value={hydrated ? stats.nearExpiry : 0}
             prefix=""
             icon={<PackageX className="h-6 w-6" />}
           />
         </div>
 
-        {/* Placeholder Widget Tabel */}
-        <div className="rounded-2xl border border-brand-primary/20 bg-brand-surface/60 p-6 backdrop-blur-md">
-          <h3 className="text-lg font-bold text-white mb-4">Aktivitas Transaksi Terakhir</h3>
-          <div className="text-sm text-gray-400 text-center py-12 border border-dashed border-brand-primary/20 rounded-xl">
-            Sistem terintegrasi Supabase siap menerima entri data dari modul POS & Purchasing.
-          </div>
+        {/* Aktivitas Transaksi Terakhir */}
+        <div className="glass-card-light rounded-2xl p-6">
+          <h3 className="font-display mb-4 text-lg font-semibold">Aktivitas Transaksi Terakhir</h3>
+          {!hydrated || latest.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-[var(--color-border-strong)] py-12 text-center text-sm text-[var(--color-ink-soft)]">
+              Belum ada transaksi. Mulai dari menu POS Kasir, Stok, atau Pengeluaran.
+            </div>
+          ) : (
+            <ul className="divide-y divide-[var(--color-border)]">
+              {latest.map((j) => (
+                <li key={j.id} className="flex items-center justify-between gap-4 py-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold">{j.description}</p>
+                    <p className="font-mono text-[11px] text-[var(--color-ink-soft)]">
+                      {j.id} · {j.date}
+                    </p>
+                  </div>
+                  <span className="shrink-0 font-bold">{rp(j.amount)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </DashboardLayout>

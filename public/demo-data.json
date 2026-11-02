@@ -1,0 +1,327 @@
+{
+  "seedId": "demo-1793627668621",
+  "label": "Data demo Toserba",
+  "generatedAt": "2026-11-02T13:54:28.621Z",
+  "data": {
+    "products": [
+      {
+        "id": "1",
+        "sku": "BRS-001",
+        "name": "Beras Setra Ramos 5kg",
+        "category": "Beras & Biji",
+        "unit": "Pouch",
+        "price": 72000,
+        "cost": 62000,
+        "minStock": 10,
+        "batches": [
+          {
+            "batchNo": "BATCH-2026-01",
+            "qty": 15,
+            "expiredDate": "2026-11-16"
+          },
+          {
+            "batchNo": "BATCH-2026-05",
+            "qty": 30,
+            "expiredDate": "2027-05-21"
+          }
+        ]
+      },
+      {
+        "id": "2",
+        "sku": "MYK-001",
+        "name": "Minyak Goreng Bimoli 2L",
+        "category": "Minyak & Bumbu",
+        "unit": "Pouch",
+        "price": 36000,
+        "cost": 30000,
+        "minStock": 15,
+        "batches": [
+          {
+            "batchNo": "BATCH-2026-03",
+            "qty": 8,
+            "expiredDate": "2026-11-28"
+          }
+        ]
+      },
+      {
+        "id": "3",
+        "sku": "GLA-001",
+        "name": "Gula Pasir Gulaku 1kg",
+        "category": "Sembako",
+        "unit": "Kg",
+        "price": 17500,
+        "cost": 15000,
+        "minStock": 20,
+        "batches": [
+          {
+            "batchNo": "BATCH-2026-02",
+            "qty": 120,
+            "expiredDate": "2028-03-16"
+          }
+        ]
+      },
+      {
+        "id": "4",
+        "sku": "TLR-001",
+        "name": "Telur Ayam Negeri (Peti)",
+        "category": "Sembako Basah",
+        "unit": "Kg",
+        "price": 28000,
+        "cost": 24000,
+        "minStock": 10,
+        "batches": [
+          {
+            "batchNo": "BATCH-2026-09",
+            "qty": 25,
+            "expiredDate": "2026-11-11"
+          }
+        ]
+      },
+      {
+        "id": "5",
+        "sku": "TRG-001",
+        "name": "Tepung Terigu Segitiga Biru 1kg",
+        "category": "Sembako",
+        "unit": "Pcs",
+        "price": 13000,
+        "cost": 11000,
+        "minStock": 20,
+        "batches": [
+          {
+            "batchNo": "BATCH-2026-06",
+            "qty": 60,
+            "expiredDate": "2027-08-29"
+          }
+        ]
+      },
+      {
+        "id": "6",
+        "sku": "SMR-001",
+        "name": "Indomie Goreng Spesial (Dus)",
+        "category": "Mie & Kaleng",
+        "unit": "Dus",
+        "price": 112000,
+        "cost": 90000,
+        "minStock": 10,
+        "batches": [
+          {
+            "batchNo": "BATCH-2026-07",
+            "qty": 40,
+            "expiredDate": "2027-04-21"
+          }
+        ]
+      }
+    ],
+    "journals": [
+      {
+        "date": "2026-11-02 14:20",
+        "description": "HPP penjualan (Nota #INV-1092)",
+        "debitAccount": "601 - Harga Pokok Penjualan",
+        "creditAccount": "105 - Persediaan Barang",
+        "amount": 270000,
+        "type": "COGS",
+        "id": "JRN-2026-007"
+      },
+      {
+        "date": "2026-11-02 14:20",
+        "description": "Penjualan Kasir POS (Nota #INV-1092)",
+        "debitAccount": "101 - Kas Kasir POS",
+        "creditAccount": "401 - Pendapatan Penjualan",
+        "amount": 325000,
+        "type": "SALES",
+        "id": "JRN-2026-006"
+      },
+      {
+        "date": "2026-11-02 11:00",
+        "description": "Pembayaran listrik & air toko",
+        "debitAccount": "501 - Beban Operasional",
+        "creditAccount": "102 - Kas Kecil Operasional",
+        "amount": 450000,
+        "type": "EXPENSE",
+        "id": "JRN-2026-005"
+      },
+      {
+        "date": "2026-11-01 16:30",
+        "description": "Pelunasan piutang (Catering Berkah) - INV-1055",
+        "debitAccount": "103 - Bank BCA Toko",
+        "creditAccount": "104 - Piutang Usaha (AR)",
+        "amount": 2100000,
+        "type": "RECEIVABLE",
+        "id": "JRN-2026-004"
+      },
+      {
+        "date": "2026-10-31 09:15",
+        "description": "Pembayaran utang PO-2026-002 (Distributor Minyak Bimoli)",
+        "debitAccount": "201 - Utang Usaha (AP)",
+        "creditAccount": "103 - Bank BCA Toko",
+        "amount": 7200000,
+        "type": "PAYABLE",
+        "id": "JRN-2026-003"
+      },
+      {
+        "date": "2026-10-24 09:40",
+        "description": "Pembelian kredit PO-2026-002 (Distributor Minyak Bimoli)",
+        "debitAccount": "105 - Persediaan Barang",
+        "creditAccount": "201 - Utang Usaha (AP)",
+        "amount": 7200000,
+        "type": "PURCHASE",
+        "id": "JRN-2026-002"
+      },
+      {
+        "date": "2026-10-22 10:05",
+        "description": "Pembelian kredit PO-2026-001 (CV Beras Utama Jaya)",
+        "debitAccount": "105 - Persediaan Barang",
+        "creditAccount": "201 - Utang Usaha (AP)",
+        "amount": 12400000,
+        "type": "PURCHASE",
+        "id": "JRN-2026-001"
+      }
+    ],
+    "receivables": [
+      {
+        "id": "AR-2026-001",
+        "invoiceNo": "INV-1070",
+        "customerName": "Toko Kelontong Bu Sri",
+        "phone": "081234567890",
+        "invoiceDate": "2026-10-13",
+        "dueDate": "2026-10-27",
+        "totalAmount": 1250000,
+        "paidAmount": 0
+      },
+      {
+        "id": "AR-2026-002",
+        "invoiceNo": "INV-1081",
+        "customerName": "Warung Makan Pak Joko",
+        "phone": "085711223344",
+        "invoiceDate": "2026-10-21",
+        "dueDate": "2026-11-07",
+        "totalAmount": 850000,
+        "paidAmount": 200000
+      },
+      {
+        "id": "AR-2026-003",
+        "invoiceNo": "INV-1055",
+        "customerName": "Catering Berkah",
+        "phone": "081987654321",
+        "invoiceDate": "2026-10-03",
+        "dueDate": "2026-10-17",
+        "totalAmount": 2100000,
+        "paidAmount": 2100000
+      }
+    ],
+    "accounts": [
+      {
+        "id": "101",
+        "name": "Kas Kasir POS",
+        "balance": 3250000,
+        "type": "CASH"
+      },
+      {
+        "id": "102",
+        "name": "Kas Kecil Operasional",
+        "balance": 1500000,
+        "type": "CASH"
+      },
+      {
+        "id": "103",
+        "name": "Bank BCA Toko",
+        "balance": 45800000,
+        "type": "BANK"
+      }
+    ],
+    "suppliers": [
+      {
+        "id": "1",
+        "code": "SUP-IND-01",
+        "name": "PT Indofood Sukses Makmur",
+        "phone": "081234567890"
+      },
+      {
+        "id": "2",
+        "code": "SUP-BRS-02",
+        "name": "CV Beras Utama Jaya",
+        "phone": "081987654321"
+      },
+      {
+        "id": "3",
+        "code": "SUP-BIM-03",
+        "name": "Distributor Minyak Bimoli",
+        "phone": "085211223344"
+      }
+    ],
+    "purchaseOrders": [
+      {
+        "id": "PO-2026-001",
+        "supplierId": "2",
+        "supplierName": "CV Beras Utama Jaya",
+        "date": "2026-10-21",
+        "receivedDate": "2026-10-22",
+        "dueDate": "2026-11-21",
+        "paymentTerm": "CREDIT",
+        "termDays": 30,
+        "status": "RECEIVED",
+        "paidAmount": 0,
+        "totalAmount": 12400000,
+        "items": [
+          {
+            "productId": "1",
+            "name": "Beras Setra Ramos 5kg",
+            "unit": "Pouch",
+            "qty": 200,
+            "unitCost": 62000
+          }
+        ]
+      },
+      {
+        "id": "PO-2026-002",
+        "supplierId": "3",
+        "supplierName": "Distributor Minyak Bimoli",
+        "date": "2026-10-23",
+        "receivedDate": "2026-10-24",
+        "dueDate": "2026-11-07",
+        "paymentTerm": "CREDIT",
+        "termDays": 14,
+        "status": "RECEIVED",
+        "paidAmount": 7200000,
+        "totalAmount": 7200000,
+        "items": [
+          {
+            "productId": "2",
+            "name": "Minyak Goreng Bimoli 2L",
+            "unit": "Pouch",
+            "qty": 240,
+            "unitCost": 30000
+          }
+        ]
+      },
+      {
+        "id": "PO-2026-003",
+        "supplierId": "1",
+        "supplierName": "PT Indofood Sukses Makmur",
+        "date": "2026-10-26",
+        "receivedDate": null,
+        "dueDate": null,
+        "paymentTerm": "CREDIT",
+        "termDays": 30,
+        "status": "PENDING",
+        "paidAmount": 0,
+        "totalAmount": 4500000,
+        "items": [
+          {
+            "productId": "6",
+            "name": "Indomie Goreng Spesial (Dus)",
+            "unit": "Dus",
+            "qty": 50,
+            "unitCost": 90000
+          }
+        ]
+      }
+    ],
+    "invoiceSeq": 1093,
+    "journalSeq": 8,
+    "arSeq": 4,
+    "batchSeq": 10,
+    "poSeq": 4,
+    "supplierSeq": 4
+  }
+}

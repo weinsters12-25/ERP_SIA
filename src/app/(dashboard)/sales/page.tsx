@@ -1,123 +1,45 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  DollarSign, 
-  Search, 
-  MessageSquare, 
-  Send, 
-  CheckCircle2, 
-  Clock, 
-  AlertTriangle, 
-  X, 
-  User, 
-  PhoneCall 
-} from 'lucide-react';
-
-// 1. Definisikan Tipe Data Piutang (Mencegah error 'item' di TypeScript)
-export type ReceivableStatus = 'OVERDUE' | 'DUE_SOON' | 'PAID';
-
-export type Receivable = {
-  id: string;
-  customerName: string;
-  phone: string;
-  invoiceDate: string;
-  dueDate: string;
-  totalAmount: number;
-  paidAmount: number;
-  remainingAmount: number;
-  status: ReceivableStatus;
-};
-
-const LOCAL_STORAGE_KEY = 'toserba_receivables_data';
-
-// Mock Data Piutang Pelanggan
-const MOCK_RECEIVABLES: Receivable[] = [
-  {
-    id: 'AR-2026-001',
-    customerName: 'Toko Kelontong Bu Sri',
-    phone: '081234567890',
-    invoiceDate: '2026-09-10',
-    dueDate: '2026-09-24',
-    totalAmount: 1250000,
-    paidAmount: 0,
-    remainingAmount: 1250000,
-    status: 'OVERDUE',
-  },
-  {
-    id: 'AR-2026-002',
-    customerName: 'Warung Makan Pak Joko',
-    phone: '085711223344',
-    invoiceDate: '2026-09-18',
-    dueDate: '2026-09-28',
-    totalAmount: 850000,
-    paidAmount: 200000,
-    remainingAmount: 650000,
-    status: 'DUE_SOON',
-  },
-  {
-    id: 'AR-2026-003',
-    customerName: 'Catering Berkah',
-    phone: '081987654321',
-    invoiceDate: '2026-09-01',
-    dueDate: '2026-09-15',
-    totalAmount: 2100000,
-    paidAmount: 2100000,
-    remainingAmount: 0,
-    status: 'PAID',
-  },
-];
+import { Search, MessageSquare, Send, CheckCircle2, X, User } from 'lucide-react';
+import {
+  useErpStore,
+  useHydrated,
+  getArRemaining,
+  getArStatus,
+  type Receivable,
+} from '@/stores/useErpStore';
+import { ErrorBox } from '@/components/ErpUi';
 
 export default function SalesPage() {
-  // State untuk menangani Hydration pada Next.js
-  const [isMounted, setIsMounted] = useState(false);
-
-  // Inisialisasi state dengan tipe Receivable[]
-  const [receivables, setReceivables] = useState<Receivable[]>(() => {
-    if (typeof window !== 'undefined') {
-      const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (savedData) {
-        try {
-          return JSON.parse(savedData) as Receivable[];
-        } catch (error) {
-          console.error('Gagal memuat data dari localStorage:', error);
-        }
-      }
-    }
-    return MOCK_RECEIVABLES;
-  });
+  const hydrated = useHydrated();
+  const receivables = useErpStore((s) => s.receivables);
+  const accounts = useErpStore((s) => s.accounts);
+  const payReceivable = useErpStore((s) => s.payReceivable);
 
   const [search, setSearch] = useState('');
   const [selectedAr, setSelectedAr] = useState<Receivable | null>(null);
   const [isWaModalOpen, setIsWaModalOpen] = useState(false);
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [payAmount, setPayAmount] = useState<number>(0);
+  const [payAccountId, setPayAccountId] = useState('101');
+  const [payError, setPayError] = useState('');
   const [isSuccessAlert, setIsSuccessAlert] = useState(false);
   const [alertMessage, setAlertMessage] = useState('');
 
-  // Menandai bahwa komponen sudah terpasang di browser (client)
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  // Simpan data ke localStorage setiap kali state `receivables` berubah
-  useEffect(() => {
-    if (isMounted) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(receivables));
-    }
-  }, [receivables, isMounted]);
-
   // Kalkulasi Ringkasan Dinamis
-  const totalActiveAr = receivables
-    .filter((item) => item.status !== 'PAID')
-    .reduce((sum, item) => sum + item.remainingAmount, 0);
-
-  const totalOverdueAr = receivables
-    .filter((item) => item.status === 'OVERDUE')
-    .reduce((sum, item) => sum + item.remainingAmount, 0);
-
-  const totalPaidAr = receivables.reduce((sum, item) => sum + item.paidAmount, 0);
+  const summary = useMemo(() => {
+    const active = receivables.filter((r) => getArStatus(r) !== 'PAID');
+    const overdue = receivables.filter((r) => getArStatus(r) === 'OVERDUE');
+    return {
+      activeCount: active.length,
+      overdueCount: overdue.length,
+      totalActive: active.reduce((s, r) => s + getArRemaining(r), 0),
+      totalOverdue: overdue.reduce((s, r) => s + getArRemaining(r), 0),
+      totalPaid: receivables.reduce((s, r) => s + r.paidAmount, 0),
+    };
+  }, [receivables]);
 
   const filteredAr = receivables.filter(
     (item) =>
@@ -126,6 +48,12 @@ export default function SalesPage() {
       item.phone.includes(search)
   );
 
+  const showToast = (message: string) => {
+    setAlertMessage(message);
+    setIsSuccessAlert(true);
+    setTimeout(() => setIsSuccessAlert(false), 3000);
+  };
+
   const handleOpenWaModal = (ar: Receivable) => {
     setSelectedAr(ar);
     setIsWaModalOpen(true);
@@ -133,55 +61,31 @@ export default function SalesPage() {
 
   const handleSendWa = () => {
     setIsWaModalOpen(false);
-    setAlertMessage(`Notifikasi WhatsApp Pengingat Bon berhasil dikirim ke ${selectedAr?.customerName}!`);
-    setIsSuccessAlert(true);
-    setTimeout(() => setIsSuccessAlert(false), 3000);
+    showToast(`Notifikasi WhatsApp Pengingat Bon berhasil dikirim ke ${selectedAr?.customerName}!`);
   };
 
   const handleOpenPayModal = (ar: Receivable) => {
     setSelectedAr(ar);
-    setPayAmount(ar.remainingAmount);
+    setPayAmount(getArRemaining(ar));
+    setPayAccountId('101');
+    setPayError('');
     setIsPayModalOpen(true);
   };
 
   const handleSavePayment = () => {
     if (!selectedAr) return;
-
-    setReceivables((dataLama) =>
-      dataLama.map((item) => {
-        if (item.id === selectedAr.id) {
-          const newPaidAmount = item.paidAmount + payAmount;
-          const newRemainingAmount = Math.max(0, item.totalAmount - newPaidAmount);
-          const newStatus: ReceivableStatus = newRemainingAmount === 0 ? 'PAID' : item.status;
-
-          return {
-            ...item,
-            paidAmount: newPaidAmount,
-            remainingAmount: newRemainingAmount,
-            status: newStatus,
-          };
-        }
-        return item;
-      })
-    );
-
-    setIsPayModalOpen(false);
-    setAlertMessage(`Pembayaran piutang ${selectedAr.customerName} berhasil diproses!`);
-    setIsSuccessAlert(true);
-    setTimeout(() => setIsSuccessAlert(false), 3000);
-  };
-
-  const handleResetData = () => {
-    if (confirm('Apakah Anda yakin ingin mengembalikan data ke posisi awal?')) {
-      setReceivables(MOCK_RECEIVABLES);
-      localStorage.removeItem(LOCAL_STORAGE_KEY);
+    const res = payReceivable(selectedAr.id, payAmount, payAccountId);
+    if (!res.ok) {
+      setPayError(res.error);
+      return;
     }
+    setIsPayModalOpen(false);
+    showToast(res.message);
   };
 
-  // Cegah render sebelum mounted di client agar tidak terjadi error hydration pada Next.js
-  if (!isMounted) {
-    return null;
-  }
+  if (!hydrated) return <p className="text-sm text-slate-500">Memuat data piutang…</p>;
+
+  const selectedRemaining = selectedAr ? getArRemaining(selectedAr) : 0;
 
   return (
     <div className="space-y-6 relative z-10">
@@ -193,12 +97,6 @@ export default function SalesPage() {
             Manajemen Buku Bon Pelanggan, Pembayaran Piutang, & Otomasi Pengingat WhatsApp
           </p>
         </div>
-        <button
-          onClick={handleResetData}
-          className="text-xs text-slate-400 hover:text-rose-500 underline self-start sm:self-auto transition-colors"
-        >
-          Reset Data LocalStorage
-        </button>
       </div>
 
       {/* Ringkasan Kartu Piutang */}
@@ -206,25 +104,25 @@ export default function SalesPage() {
         <div className="glass-card-light rounded-2xl p-5 border-l-4 border-l-indigo-500">
           <p className="text-xs font-semibold text-slate-500">Total Piutang Aktif (AR)</p>
           <p className="text-2xl font-black text-indigo-600 mt-1">
-            Rp {totalActiveAr.toLocaleString('id-ID')}
+            Rp {summary.totalActive.toLocaleString('id-ID')}
           </p>
           <p className="text-[11px] text-slate-400 mt-1">
-            {receivables.filter((i) => i.status !== 'PAID').length} Pelanggan memiliki sisa bon
+            {summary.activeCount} Pelanggan memiliki sisa bon
           </p>
         </div>
         <div className="glass-card-light rounded-2xl p-5 border-l-4 border-l-rose-500">
           <p className="text-xs font-semibold text-slate-500">Piutang Jatuh Tempo (Overdue)</p>
           <p className="text-2xl font-black text-rose-600 mt-1">
-            Rp {totalOverdueAr.toLocaleString('id-ID')}
+            Rp {summary.totalOverdue.toLocaleString('id-ID')}
           </p>
           <p className="text-[11px] text-slate-400 mt-1">
-            {receivables.filter((i) => i.status === 'OVERDUE').length} Nota melewati batas pembayaran
+            {summary.overdueCount} Nota melewati batas pembayaran
           </p>
         </div>
         <div className="glass-card-light rounded-2xl p-5 border-l-4 border-l-emerald-500">
           <p className="text-xs font-semibold text-slate-500">Total Piutang Terbayar</p>
           <p className="text-2xl font-black text-emerald-600 mt-1">
-            Rp {totalPaidAr.toLocaleString('id-ID')}
+            Rp {summary.totalPaid.toLocaleString('id-ID')}
           </p>
           <p className="text-[11px] text-slate-400 mt-1">Tercatat di Jurnal Penerimaan Kas</p>
         </div>
@@ -259,68 +157,79 @@ export default function SalesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredAr.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-3.5 px-4 font-semibold text-slate-800">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600 border border-indigo-100">
-                        <User className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <p className="font-bold text-slate-900">{item.customerName}</p>
-                        <span className="text-[10px] font-mono text-slate-400">{item.id} • {item.phone}</span>
-                      </div>
-                    </div>
-                  </td>
-
-                  <td className="py-3.5 px-4 font-medium text-slate-600">
-                    {item.dueDate}
-                  </td>
-
-                  <td className="py-3.5 px-4 font-bold text-slate-700">
-                    Rp {item.totalAmount.toLocaleString('id-ID')}
-                  </td>
-
-                  <td className="py-3.5 px-4 font-black text-slate-900">
-                    Rp {item.remainingAmount.toLocaleString('id-ID')}
-                  </td>
-
-                  <td className="py-3.5 px-4">
-                    {item.status === 'PAID' ? (
-                      <span className="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-md font-bold text-[11px]">
-                        Lunas
-                      </span>
-                    ) : item.status === 'OVERDUE' ? (
-                      <span className="bg-rose-100 text-rose-800 px-2.5 py-1 rounded-md font-bold text-[11px]">
-                        Lewat Jatuh Tempo
-                      </span>
-                    ) : (
-                      <span className="bg-amber-100 text-amber-800 px-2.5 py-1 rounded-md font-bold text-[11px]">
-                        Mendekati Tempo
-                      </span>
-                    )}
-                  </td>
-
-                  <td className="py-3.5 px-4 text-right space-x-2">
-                    {item.remainingAmount > 0 && (
-                      <>
-                        <button
-                          onClick={() => handleOpenWaModal(item)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-lg font-bold text-xs transition-colors"
-                        >
-                          <Send className="h-3.5 w-3.5" /> WA Alert
-                        </button>
-                        <button
-                          onClick={() => handleOpenPayModal(item)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 text-white hover:bg-indigo-500 rounded-lg font-bold text-xs shadow-xs transition-colors"
-                        >
-                          Bayar Bon
-                        </button>
-                      </>
-                    )}
+              {filteredAr.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-14 text-center text-slate-400">
+                    {receivables.length === 0
+                      ? 'Belum ada piutang. Bon tercatat otomatis saat transaksi POS memakai metode Bon / Kredit.'
+                      : 'Tidak ada piutang yang cocok dengan pencarian.'}
                   </td>
                 </tr>
-              ))}
+              )}
+              {filteredAr.map((item) => {
+                const status = getArStatus(item);
+                const remaining = getArRemaining(item);
+                return (
+                  <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="py-3.5 px-4 font-semibold text-slate-800">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600 border border-indigo-100">
+                          <User className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900">{item.customerName}</p>
+                          <span className="text-[10px] font-mono text-slate-400">{item.id} • {item.phone}</span>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="py-3.5 px-4 font-medium text-slate-600">{item.dueDate}</td>
+
+                    <td className="py-3.5 px-4 font-bold text-slate-700">
+                      Rp {item.totalAmount.toLocaleString('id-ID')}
+                    </td>
+
+                    <td className="py-3.5 px-4 font-black text-slate-900">
+                      Rp {remaining.toLocaleString('id-ID')}
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      {status === 'PAID' ? (
+                        <span className="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-md font-bold text-[11px]">
+                          Lunas
+                        </span>
+                      ) : status === 'OVERDUE' ? (
+                        <span className="bg-rose-100 text-rose-800 px-2.5 py-1 rounded-md font-bold text-[11px]">
+                          Lewat Jatuh Tempo
+                        </span>
+                      ) : (
+                        <span className="bg-amber-100 text-amber-800 px-2.5 py-1 rounded-md font-bold text-[11px]">
+                          Mendekati Tempo
+                        </span>
+                      )}
+                    </td>
+
+                    <td className="py-3.5 px-4 text-right space-x-2">
+                      {remaining > 0 && (
+                        <>
+                          <button
+                            onClick={() => handleOpenWaModal(item)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-lg font-bold text-xs transition-colors"
+                          >
+                            <Send className="h-3.5 w-3.5" /> WA Alert
+                          </button>
+                          <button
+                            onClick={() => handleOpenPayModal(item)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 text-white hover:bg-indigo-500 rounded-lg font-bold text-xs shadow-xs transition-colors"
+                          >
+                            Bayar Bon
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -363,7 +272,7 @@ export default function SalesPage() {
                 <p>Halo Yth. <strong>{selectedAr.customerName}</strong>,</p>
                 <p>
                   Pengingat dari <strong>Toserba ERP</strong>. Tagihan bon Anda sebesar{' '}
-                  <strong className="text-rose-600">Rp {selectedAr.remainingAmount.toLocaleString('id-ID')}</strong> untuk nota{' '}
+                  <strong className="text-rose-600">Rp {selectedRemaining.toLocaleString('id-ID')}</strong> untuk nota{' '}
                   <strong>{selectedAr.id}</strong> jatuh tempo pada <strong>{selectedAr.dueDate}</strong>.
                 </p>
                 <p>Mohon untuk melakukan pelunasan melalui transfer / tunai di kasir toko. Terima kasih!</p>
@@ -420,14 +329,31 @@ export default function SalesPage() {
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Nominal Pembayaran (Rp)</label>
                   <input
                     type="number"
-                    value={payAmount}
+                    value={payAmount || ''}
                     onChange={(e) => setPayAmount(Number(e.target.value))}
                     className="w-full rounded-xl border border-slate-300 bg-slate-50 py-2 px-3 text-sm font-black text-slate-800 focus:border-indigo-500 focus:bg-white focus:outline-none"
                   />
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Sisa bon saat ini: <strong>Rp {selectedAr.remainingAmount.toLocaleString('id-ID')}</strong>
+                    Sisa bon saat ini: <strong>Rp {selectedRemaining.toLocaleString('id-ID')}</strong>
                   </p>
                 </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Diterima ke</label>
+                  <select
+                    value={payAccountId}
+                    onChange={(e) => setPayAccountId(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-slate-50 py-2 px-3 text-xs text-slate-800 focus:border-indigo-500 focus:outline-none"
+                  >
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.id} - {a.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <ErrorBox text={payError} />
               </div>
 
               <div className="flex gap-2 pt-2">
