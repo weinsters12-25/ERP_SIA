@@ -14,6 +14,7 @@ import {
   Plus,
   Printer,
   Search,
+  ShoppingCart,
   Trash2,
   X,
 } from 'lucide-react';
@@ -37,6 +38,35 @@ const STORE_TAGLINE = 'Nature Fresh · Toko Sembako';
 const STORE_ADDRESS = 'Alamat toko Anda di sini';
 const STORE_PHONE = 'Telp/WA: 08xx-xxxx-xxxx';
 const CASHIER_NAME = 'Admin Toko';
+
+/* ---------- Pembantu tampilan ---------- */
+const TILE_TINTS = ['#e6f0ea', '#fbf3de', '#fbe9e5', '#e8eef7', '#efe8f5', '#e9f3f1'];
+
+const EMOJI_RULES: [RegExp, string][] = [
+  [/beras|rice/, '🍚'],
+  [/minyak/, '🫗'],
+  [/gula/, '🍬'],
+  [/telur|telor/, '🥚'],
+  [/tepung|terigu/, '🌾'],
+  [/mie|indomie|bihun|pasta/, '🍜'],
+  [/kecap|saus|sambal/, '🌶️'],
+  [/susu/, '🥛'],
+  [/kopi/, '☕'],
+  [/teh/, '🍵'],
+  [/garam/, '🧂'],
+  [/sabun|deterjen/, '🧼'],
+  [/kaleng|sarden|kornet/, '🥫'],
+  [/ayam|daging|ikan/, '🍗'],
+];
+const emojiFor = (name: string) => EMOJI_RULES.find(([re]) => re.test(name.toLowerCase()))?.[1] ?? '📦';
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="rounded-md border border-[var(--color-border-strong)] bg-[var(--color-canvas-sunk)] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[var(--color-ink-soft)]">
+      {children}
+    </kbd>
+  );
+}
 
 interface ReceiptItem {
   name: string;
@@ -228,6 +258,7 @@ function ReceiptPrint({ receipt }: { receipt: Receipt }) {
 export default function PosPage() {
   const hydrated = useHydrated();
   const searchRef = useRef<HTMLInputElement>(null);
+  const payInputRef = useRef<HTMLInputElement>(null);
 
   const products = useErpStore((s) => s.products);
   const sellItems = useErpStore((s) => s.sellItems);
@@ -261,6 +292,7 @@ export default function PosPage() {
   }, [receipt]);
 
   const total = useMemo(() => cart.reduce((s, i) => s + i.price * i.qty, 0), [cart]);
+  const totalQty = useMemo(() => cart.reduce((s, i) => s + i.qty, 0), [cart]);
 
   const categories = useMemo(() => ['Semua', ...Array.from(new Set(products.map((p) => p.category)))], [products]);
 
@@ -357,6 +389,13 @@ export default function PosPage() {
     setReceived(0);
   };
 
+  // Pilihan nominal cepat untuk pembayaran tunai
+  const quickCash = useMemo(() => {
+    if (total <= 0) return [];
+    const up = (step: number) => Math.ceil(total / step) * step;
+    return Array.from(new Set([total, up(5000), up(10000), up(50000), up(100000)])).slice(0, 4);
+  }, [total]);
+
   if (!hydrated) {
     return (
       <DashboardLayout>
@@ -371,51 +410,77 @@ export default function PosPage() {
     <DashboardLayout>
     <div className="-m-8 flex h-[calc(100vh-4rem)] overflow-hidden bg-[var(--color-canvas)] text-[var(--color-ink)]">
       {/* ============ KIRI: katalog ============ */}
-      <section className="flex flex-1 flex-col overflow-hidden p-6">
-        <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--color-border)] pb-5">
-          <div className="flex items-center gap-4">
-            <div>
-              <h1 className="font-display text-xl font-semibold">Kasir Toserba</h1>
-              <p className="text-xs text-[var(--color-ink-soft)]">F2 cari barang · F9 bayar</p>
-            </div>
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden p-6">
+        <header className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="font-display text-2xl font-semibold">Kasir Toserba</h1>
+            <p className="mt-1 flex items-center gap-1.5 text-xs text-[var(--color-ink-soft)]">
+              <Kbd>F2</Kbd> cari barang <span className="mx-1">·</span> <Kbd>F9</Kbd> bayar
+            </p>
           </div>
 
-          <div className="relative w-full sm:w-80">
-            <Search className="pointer-events-none absolute left-3.5 top-3 h-4 w-4 text-[var(--color-ink-soft)]" />
+          <div className="relative w-full sm:w-96">
+            <Search className="pointer-events-none absolute left-4 top-3.5 h-4 w-4 text-[var(--color-ink-soft)]" />
             <input
               ref={searchRef}
               type="text"
               placeholder="Cari nama barang atau SKU"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] py-2.5 pl-10 pr-4 text-sm placeholder-[var(--color-ink-soft)] focus:border-[var(--color-gold)] focus:outline-none"
+              className="w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] py-3 pl-11 pr-14 text-sm shadow-sm placeholder-[var(--color-ink-soft)] transition-shadow focus:border-[var(--color-gold)] focus:shadow-md focus:outline-none"
             />
+            {search ? (
+              <button
+                aria-label="Hapus pencarian"
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-3 rounded-full p-1 text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas-sunk)]"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : (
+              <span className="pointer-events-none absolute right-3.5 top-3.5">
+                <Kbd>F2</Kbd>
+              </span>
+            )}
           </div>
         </header>
 
         {/* Filter kategori */}
-        <div className="flex flex-wrap gap-2 pt-4">
-          {categories.map((c) => (
-            <button
-              key={c}
-              onClick={() => setCategory(c)}
-              className={`rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-                category === c
-                  ? 'border-[var(--color-pine)] bg-[var(--color-pine)] text-white'
-                  : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas-sunk)]'
-              }`}
-            >
-              {c}
-            </button>
-          ))}
+        <div className="-mx-1 mt-5 flex gap-2 overflow-x-auto px-1 pb-1">
+          {categories.map((c) => {
+            const count = c === 'Semua' ? products.length : products.filter((p) => p.category === c).length;
+            const active = category === c;
+            return (
+              <button
+                key={c}
+                onClick={() => setCategory(c)}
+                className={`flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold transition-all ${
+                  active
+                    ? 'border-[var(--color-pine)] bg-[var(--color-pine)] text-white shadow-md'
+                    : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-ink-soft)] hover:border-[var(--color-pine)]/40 hover:text-[var(--color-pine)]'
+                }`}
+              >
+                {c}
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] leading-none ${
+                    active ? 'bg-white/20 text-white' : 'bg-[var(--color-canvas-sunk)] text-[var(--color-ink-soft)]'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Grid produk */}
-        <div className="mt-4 grid flex-1 grid-cols-2 content-start gap-4 overflow-y-auto pr-1 xl:grid-cols-3 2xl:grid-cols-4">
+        <div className="mt-4 grid flex-1 grid-cols-2 content-start gap-4 overflow-y-auto p-1 pr-2 xl:grid-cols-3 2xl:grid-cols-4">
           {filtered.length === 0 && (
-            <p className="col-span-full py-16 text-center text-sm text-[var(--color-ink-soft)]">
-              Tidak ada barang yang cocok. Coba kata kunci atau kategori lain.
-            </p>
+            <div className="col-span-full flex flex-col items-center gap-2 py-20 text-center">
+              <span className="text-4xl">🔍</span>
+              <p className="text-sm font-semibold">Barang tidak ditemukan</p>
+              <p className="text-xs text-[var(--color-ink-soft)]">Coba kata kunci atau kategori lain.</p>
+            </div>
           )}
 
           {filtered.map((p) => {
@@ -424,6 +489,8 @@ export default function PosPage() {
             const days = nearest ? getDaysLeft(nearest.expiredDate) : null;
             const inCart = cart.find((i) => i.id === p.id)?.qty ?? 0;
             const soldOut = stock <= 0;
+            const lowStock = soldOut || stock <= p.minStock;
+            const tint = TILE_TINTS[Math.max(categories.indexOf(p.category) - 1, 0) % TILE_TINTS.length];
 
             return (
               <button
@@ -433,25 +500,47 @@ export default function PosPage() {
                   handleAdd(p);
                   e.currentTarget.blur(); // supaya Enter tidak menekan tombol ini lagi
                 }}
-                className="glass-card-light flex flex-col justify-between rounded-2xl p-4 text-left disabled:cursor-not-allowed disabled:opacity-50"
+                className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-[var(--color-surface)] text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-sm ${
+                  inCart > 0 ? 'border-[var(--color-pine)] ring-1 ring-[var(--color-pine)]/30' : 'border-[var(--color-border)]'
+                }`}
               >
-                <div>
-                  <div className="mb-2 flex items-center justify-between text-[11px]">
-                    <span className="rounded bg-[var(--color-canvas-sunk)] px-2 py-0.5 font-mono text-[var(--color-ink-soft)]">
-                      {p.sku}
-                    </span>
-                    {inCart > 0 && (
-                      <span className="rounded-full bg-[var(--color-pine)] px-2 py-0.5 font-bold text-white">
-                        {inCart} di keranjang
-                      </span>
-                    )}
-                  </div>
-                  <h3 className="line-clamp-2 text-sm font-semibold">{p.name}</h3>
-
-                  <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-semibold">
+                {/* Ubin ikon produk */}
+                <div className="relative flex h-24 items-center justify-center" style={{ background: tint }}>
+                  <span className="text-5xl drop-shadow-sm transition-transform duration-200 group-hover:scale-110">
+                    {emojiFor(p.name)}
+                  </span>
+                  <span className="absolute left-3 top-3 rounded-md bg-white/80 px-1.5 py-0.5 font-mono text-[10px] text-[var(--color-ink-soft)] backdrop-blur">
+                    {p.sku}
+                  </span>
+                  {inCart > 0 && (
+                    <motion.span
+                      key={inCart}
+                      initial={{ scale: 0.6 }}
+                      animate={{ scale: 1 }}
+                      className="absolute right-3 top-3 flex h-6 min-w-6 items-center justify-center rounded-full bg-[var(--color-pine)] px-1.5 text-[11px] font-bold text-white shadow"
+                    >
+                      {inCart}
+                    </motion.span>
+                  )}
+                  {days !== null && days <= 30 && (
                     <span
-                      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 ${
-                        soldOut || stock <= p.minStock
+                      className={`absolute bottom-2 left-3 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                        days <= 14
+                          ? 'bg-[var(--color-rust)] text-white'
+                          : 'bg-[var(--color-gold-light)] text-[var(--color-pine)]'
+                      }`}
+                    >
+                      Exp {days} hari
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-1 flex-col justify-between p-4">
+                  <div>
+                    <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-snug">{p.name}</h3>
+                    <span
+                      className={`mt-2 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
+                        lowStock
                           ? 'bg-[var(--color-rust-tint)] text-[var(--color-rust)]'
                           : 'bg-[var(--color-pine-tint)] text-[var(--color-pine)]'
                       }`}
@@ -459,23 +548,19 @@ export default function PosPage() {
                       <Package className="h-3 w-3" />
                       {soldOut ? 'Habis' : `Stok ${stock} ${p.unit}`}
                     </span>
-                    {days !== null && days <= 30 && (
-                      <span
-                        className={`rounded px-1.5 py-0.5 ${
-                          days <= 14
-                            ? 'bg-[var(--color-rust-tint)] text-[var(--color-rust)]'
-                            : 'bg-[var(--color-gold-tint)] text-[var(--color-gold)]'
-                        }`}
-                      >
-                        Exp {days} hari
-                      </span>
-                    )}
                   </div>
-                </div>
 
-                <div className="mt-4 flex items-end justify-between border-t border-[var(--color-border)] pt-3">
-                  <span className="text-xs text-[var(--color-ink-soft)]">per {p.unit}</span>
-                  <span className="font-display text-base font-semibold text-[var(--color-pine)]">{rp(p.price)}</span>
+                  <div className="mt-4 flex items-end justify-between">
+                    <div>
+                      <p className="text-[11px] text-[var(--color-ink-soft)]">per {p.unit}</p>
+                      <p className="font-display text-lg font-semibold leading-tight text-[var(--color-pine)]">
+                        {rp(p.price)}
+                      </p>
+                    </div>
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--color-pine-tint)] text-[var(--color-pine)] transition-colors group-hover:bg-[var(--color-pine)] group-hover:text-white">
+                      <Plus className="h-4 w-4" />
+                    </span>
+                  </div>
                 </div>
               </button>
             );
@@ -484,53 +569,68 @@ export default function PosPage() {
       </section>
 
       {/* ============ KANAN: keranjang ============ */}
-      <aside className="flex w-80 flex-col justify-between border-l border-[var(--color-border)] bg-[var(--color-surface)] p-6">
-        <div className="min-h-0 flex-1">
-          <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-4">
-            <h2 className="font-display text-lg font-semibold">Keranjang</h2>
-            {cart.length > 0 && (
-              <button
-                onClick={clearCart}
-                className="flex items-center gap-1 text-xs font-semibold text-[var(--color-rust)] hover:underline"
-              >
-                <Trash2 className="h-3.5 w-3.5" /> Kosongkan
-              </button>
-            )}
+      <aside className="flex w-[22rem] shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+        <div className="flex items-center justify-between pb-4">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--color-pine-tint)] text-[var(--color-pine)]">
+              <ShoppingCart className="h-[18px] w-[18px]" />
+            </span>
+            <div>
+              <h2 className="font-display text-lg font-semibold leading-tight">Keranjang</h2>
+              <p className="text-[11px] text-[var(--color-ink-soft)]">{totalQty} item</p>
+            </div>
           </div>
+          {cart.length > 0 && (
+            <button
+              onClick={clearCart}
+              className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-[var(--color-rust)] transition-colors hover:bg-[var(--color-rust-tint)]"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Kosongkan
+            </button>
+          )}
+        </div>
 
-          <div className="mt-4 max-h-[calc(100vh-26rem)] space-y-3 overflow-y-auto pr-1">
-            {cart.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-[var(--color-border-strong)] py-14 text-center text-xs text-[var(--color-ink-soft)]">
-                Keranjang masih kosong.
-                <br />
-                Klik barang di kiri untuk menambahkan.
-              </div>
-            ) : (
-              cart.map((item) => (
-                <div
+        <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1">
+          {cart.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[var(--color-border-strong)] px-6 text-center">
+              <span className="text-4xl">🛒</span>
+              <p className="text-sm font-semibold">Keranjang masih kosong</p>
+              <p className="text-xs text-[var(--color-ink-soft)]">Klik barang di sebelah kiri untuk menambahkan.</p>
+            </div>
+          ) : (
+            <AnimatePresence initial={false}>
+              {cart.map((item) => (
+                <motion.div
                   key={item.id}
-                  className="flex items-center justify-between rounded-xl border border-[var(--color-border)] bg-[var(--color-canvas)] p-3"
+                  layout
+                  initial={{ opacity: 0, x: 24 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 24 }}
+                  transition={{ duration: 0.18 }}
+                  className="flex items-center gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-canvas)] p-3"
                 >
-                  <div className="flex-1 pr-2">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-2xl shadow-sm">
+                    {emojiFor(item.name)}
+                  </span>
+
+                  <div className="min-w-0 flex-1">
                     <h4 className="line-clamp-1 text-xs font-semibold">{item.name}</h4>
-                    <p className="mt-0.5 text-[11px] text-[var(--color-ink-soft)]">
-                      {rp(item.price)} × {item.qty}
-                    </p>
-                    <p className="text-xs font-bold text-[var(--color-pine)]">{rp(item.price * item.qty)}</p>
+                    <p className="text-[11px] text-[var(--color-ink-soft)]">{rp(item.price)}</p>
+                    <p className="text-sm font-bold text-[var(--color-pine)]">{rp(item.price * item.qty)}</p>
                   </div>
 
-                  <div className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1">
+                  <div className="flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] p-0.5">
                     <button
                       aria-label="Kurangi"
                       onClick={(e) => {
                         updateQty(item.id, item.qty - 1);
                         e.currentTarget.blur();
                       }}
-                      className="rounded p-1 hover:bg-[var(--color-canvas-sunk)]"
+                      className="flex h-6 w-6 items-center justify-center rounded-full transition-colors hover:bg-[var(--color-rust-tint)] hover:text-[var(--color-rust)]"
                     >
                       <Minus className="h-3 w-3" />
                     </button>
-                    <span className="w-6 text-center text-xs font-bold">{item.qty}</span>
+                    <span className="w-5 text-center text-xs font-bold">{item.qty}</span>
                     <button
                       aria-label="Tambah"
                       disabled={item.qty >= item.stock}
@@ -538,32 +638,40 @@ export default function PosPage() {
                         updateQty(item.id, item.qty + 1);
                         e.currentTarget.blur();
                       }}
-                      className="rounded p-1 hover:bg-[var(--color-canvas-sunk)] disabled:opacity-30"
+                      className="flex h-6 w-6 items-center justify-center rounded-full transition-colors hover:bg-[var(--color-pine-tint)] hover:text-[var(--color-pine)] disabled:opacity-30"
                     >
                       <Plus className="h-3 w-3" />
                     </button>
                   </div>
-                </div>
-              ))
-            )}
-          </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          )}
         </div>
 
-        <div className="space-y-3 border-t border-[var(--color-border)] pt-4">
-          <div className="flex items-center justify-between text-sm text-[var(--color-ink-soft)]">
+        {/* Ringkasan & tombol bayar */}
+        <div className="mt-4 space-y-3 rounded-2xl bg-[var(--color-pine)] p-4 text-white shadow-lg">
+          <div className="flex items-center justify-between text-xs text-white/70">
             <span>Jumlah item</span>
-            <span>{cart.reduce((s, i) => s + i.qty, 0)}</span>
+            <span className="font-semibold text-white">{totalQty}</span>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="font-semibold">Total bayar</span>
-            <span className="font-display text-2xl font-semibold text-[var(--color-pine)]">{rp(total)}</span>
+          <div className="flex items-end justify-between">
+            <span className="text-sm font-medium text-white/80">Total bayar</span>
+            <motion.span
+              key={total}
+              initial={{ scale: 1.08 }}
+              animate={{ scale: 1 }}
+              className="font-display text-2xl font-semibold"
+            >
+              {rp(total)}
+            </motion.span>
           </div>
           <button
             onClick={openPayment}
             disabled={cart.length === 0}
-            className="w-full rounded-xl bg-[var(--color-pine)] py-3 text-sm font-bold text-white shadow-md transition-colors hover:bg-[var(--color-pine-light)] disabled:opacity-40"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-gold-light)] py-3 text-sm font-bold text-[var(--color-pine)] shadow-md transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-40"
           >
-            Bayar (F9)
+            Bayar <span className="rounded-md bg-[var(--color-pine)]/15 px-1.5 py-0.5 font-mono text-[10px]">F9</span>
           </button>
         </div>
       </aside>
@@ -578,143 +686,169 @@ export default function PosPage() {
             className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-ink)]/40 p-4 backdrop-blur-sm"
           >
             <motion.div
-              initial={{ scale: 0.96 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.96 }}
-              className="relative w-full max-w-md space-y-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-xl"
+              initial={{ scale: 0.96, y: 8 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.96, y: 8 }}
+              className="relative w-full max-w-md overflow-hidden rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl"
             >
-              <button
-                aria-label="Tutup"
-                onClick={() => setPayOpen(false)}
-                className="absolute right-4 top-4 p-1 text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]"
-              >
-                <X className="h-4 w-4" />
-              </button>
-
-              <div>
-                <h3 className="font-display text-lg font-semibold">Pembayaran</h3>
-                <p className="text-2xl font-semibold text-[var(--color-pine)]">{rp(total)}</p>
+              {/* Kepala: total tagihan */}
+              <div className="relative bg-[var(--color-pine)] px-6 pb-5 pt-6 text-white">
+                <button
+                  aria-label="Tutup"
+                  onClick={() => setPayOpen(false)}
+                  className="absolute right-4 top-4 rounded-full p-1.5 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <h3 className="text-sm font-medium text-white/70">Pembayaran</h3>
+                <p className="font-display text-4xl font-semibold">{rp(total)}</p>
+                <p className="mt-1 text-xs text-white/60">{totalQty} item dalam keranjang</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 rounded-xl bg-[var(--color-canvas-sunk)] p-1 text-sm font-semibold">
-                {(
-                  [
-                    ['CASH', 'Tunai', Banknote],
-                    ['CREDIT', 'Bon / Kredit', CreditCard],
-                  ] as const
-                ).map(([key, label, Icon]) => (
-                  <button
-                    key={key}
-                    onClick={() => {
-                      setMethod(key);
-                      setError('');
-                    }}
-                    className={`flex items-center justify-center gap-2 rounded-lg py-2 transition-colors ${
-                      method === key ? 'bg-[var(--color-surface)] text-[var(--color-pine)] shadow-sm' : 'text-[var(--color-ink-soft)]'
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" /> {label}
-                  </button>
-                ))}
-              </div>
-
-              {method === 'CASH' ? (
-                <div className="space-y-3">
-                  <div>
-                    <label className="mb-1 block text-xs font-semibold text-[var(--color-ink-soft)]">
-                      Uang diterima dari pembeli (Rp)
-                    </label>
-                    <input
-                      autoFocus
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="Ketik nominal uang"
-                      value={received ? received.toLocaleString('id-ID') : ''}
-                      onChange={(e) => setReceived(Number(e.target.value.replace(/\D/g, '')))}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && canConfirm) {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handleConfirm();
-                        }
+              <div className="space-y-4 p-6">
+                <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[var(--color-canvas-sunk)] p-1 text-sm font-semibold">
+                  {(
+                    [
+                      ['CASH', 'Tunai', Banknote],
+                      ['CREDIT', 'Bon / Kredit', CreditCard],
+                    ] as const
+                  ).map(([key, label, Icon]) => (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        setMethod(key);
+                        setError('');
                       }}
-                      className="w-full rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-canvas)] px-3 py-2.5 text-lg font-bold focus:border-[var(--color-gold)] focus:outline-none"
-                    />
-                  </div>
-
-                  <div
-                    className={`flex items-center justify-between rounded-xl px-4 py-3 text-sm ${
-                      received >= total
-                        ? 'bg-[var(--color-pine-tint)] text-[var(--color-pine)]'
-                        : 'bg-[var(--color-rust-tint)] text-[var(--color-rust)]'
-                    }`}
-                  >
-                    <span>{received >= total ? 'Kembalian' : 'Uang kurang'}</span>
-                    <span className="font-display text-lg font-semibold">{rp(Math.abs(received - total))}</span>
-                  </div>
+                      className={`flex items-center justify-center gap-2 rounded-xl py-2.5 transition-all ${
+                        method === key
+                          ? 'bg-[var(--color-surface)] text-[var(--color-pine)] shadow-sm'
+                          : 'text-[var(--color-ink-soft)]'
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" /> {label}
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  <div>
-                    <label className="mb-1 block text-xs font-semibold text-[var(--color-ink-soft)]">Nama pelanggan</label>
-                    <input
-                      type="text"
-                      value={customerName}
-                      onChange={(e) => setCustomerName(e.target.value)}
-                      placeholder="Contoh: Warung Bu Ani"
-                      className="w-full rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-canvas)] px-3 py-2.5 text-sm focus:border-[var(--color-gold)] focus:outline-none"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
+
+                {method === 'CASH' ? (
+                  <div className="space-y-3">
                     <div>
-                      <label className="mb-1 block text-xs font-semibold text-[var(--color-ink-soft)]">No. WhatsApp</label>
+                      <label className="mb-1 block text-xs font-semibold text-[var(--color-ink-soft)]">
+                        Uang diterima dari pembeli (Rp)
+                      </label>
                       <input
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="08xxxxxxxxxx"
+                        ref={payInputRef}
+                        autoFocus
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="Ketik nominal uang"
+                        value={received ? received.toLocaleString('id-ID') : ''}
+                        onChange={(e) => setReceived(Number(e.target.value.replace(/\D/g, '')))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && canConfirm) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleConfirm();
+                          }
+                        }}
+                        className="w-full rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-canvas)] px-4 py-3 text-xl font-bold focus:border-[var(--color-gold)] focus:outline-none"
+                      />
+                    </div>
+
+                    {/* Nominal cepat */}
+                    <div className="flex flex-wrap gap-2">
+                      {quickCash.map((v, i) => (
+                        <button
+                          key={v}
+                          onClick={() => {
+                            setReceived(v);
+                            payInputRef.current?.focus();
+                          }}
+                          className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            received === v
+                              ? 'border-[var(--color-pine)] bg-[var(--color-pine)] text-white'
+                              : 'border-[var(--color-border)] text-[var(--color-ink-soft)] hover:border-[var(--color-pine)] hover:text-[var(--color-pine)]'
+                          }`}
+                        >
+                          {i === 0 ? 'Uang pas' : rp(v)}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div
+                      className={`flex items-center justify-between rounded-2xl px-4 py-3 text-sm ${
+                        received >= total
+                          ? 'bg-[var(--color-pine-tint)] text-[var(--color-pine)]'
+                          : 'bg-[var(--color-rust-tint)] text-[var(--color-rust)]'
+                      }`}
+                    >
+                      <span>{received >= total ? 'Kembalian' : 'Uang kurang'}</span>
+                      <span className="font-display text-xl font-semibold">{rp(Math.abs(received - total))}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-[var(--color-ink-soft)]">Nama pelanggan</label>
+                      <input
+                        type="text"
+                        value={customerName}
+                        onChange={(e) => setCustomerName(e.target.value)}
+                        placeholder="Contoh: Warung Bu Ani"
                         className="w-full rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-canvas)] px-3 py-2.5 text-sm focus:border-[var(--color-gold)] focus:outline-none"
                       />
                     </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-semibold text-[var(--color-ink-soft)]">Tempo</label>
-                      <select
-                        value={dueDays}
-                        onChange={(e) => setDueDays(Number(e.target.value))}
-                        className="w-full rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-canvas)] px-3 py-2.5 text-sm focus:border-[var(--color-gold)] focus:outline-none"
-                      >
-                        <option value={7}>7 hari</option>
-                        <option value={14}>14 hari</option>
-                        <option value={30}>30 hari</option>
-                      </select>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-[var(--color-ink-soft)]">No. WhatsApp</label>
+                        <input
+                          type="tel"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          placeholder="08xxxxxxxxxx"
+                          className="w-full rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-canvas)] px-3 py-2.5 text-sm focus:border-[var(--color-gold)] focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-[var(--color-ink-soft)]">Tempo</label>
+                        <select
+                          value={dueDays}
+                          onChange={(e) => setDueDays(Number(e.target.value))}
+                          className="w-full rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-canvas)] px-3 py-2.5 text-sm focus:border-[var(--color-gold)] focus:outline-none"
+                        >
+                          <option value={7}>7 hari</option>
+                          <option value={14}>14 hari</option>
+                          <option value={30}>30 hari</option>
+                        </select>
+                      </div>
                     </div>
+                    <p className="text-[11px] text-[var(--color-ink-soft)]">
+                      Transaksi ini masuk ke Piutang (AR) dan bisa ditagih lewat menu Pendapatan.
+                    </p>
                   </div>
-                  <p className="text-[11px] text-[var(--color-ink-soft)]">
-                    Transaksi ini masuk ke Piutang (AR) dan bisa ditagih lewat menu Pendapatan.
+                )}
+
+                {error && (
+                  <p className="flex items-start gap-2 rounded-lg bg-[var(--color-rust-tint)] px-3 py-2 text-xs font-semibold text-[var(--color-rust)]">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {error}
                   </p>
+                )}
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => setPayOpen(false)}
+                    className="flex-1 rounded-xl border border-[var(--color-border)] py-3 text-sm font-semibold text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas-sunk)]"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    onClick={handleConfirm}
+                    disabled={!canConfirm}
+                    className="flex-[1.4] rounded-xl bg-[var(--color-pine)] py-3 text-sm font-bold text-white shadow-md transition-all hover:bg-[var(--color-pine-light)] active:scale-[0.98] disabled:opacity-40"
+                  >
+                    Selesaikan transaksi
+                  </button>
                 </div>
-              )}
-
-              {error && (
-                <p className="flex items-start gap-2 rounded-lg bg-[var(--color-rust-tint)] px-3 py-2 text-xs font-semibold text-[var(--color-rust)]">
-                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {error}
-                </p>
-              )}
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  onClick={() => setPayOpen(false)}
-                  className="flex-1 rounded-xl border border-[var(--color-border)] py-2.5 text-sm font-semibold text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas-sunk)]"
-                >
-                  Batal
-                </button>
-                <button
-                  onClick={handleConfirm}
-                  disabled={!canConfirm}
-                  className="flex-1 rounded-xl bg-[var(--color-pine)] py-2.5 text-sm font-bold text-white shadow-md hover:bg-[var(--color-pine-light)] disabled:opacity-40"
-                >
-                  Selesaikan transaksi
-                </button>
               </div>
             </motion.div>
           </motion.div>
@@ -734,41 +868,55 @@ export default function PosPage() {
               initial={{ scale: 0.9 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0.9 }}
-              className="w-full max-w-sm space-y-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 text-center shadow-xl"
+              className="w-full max-w-sm overflow-hidden rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface)] text-center shadow-xl"
             >
-              <CheckCircle2 className="mx-auto h-14 w-14 text-[var(--color-pine)]" />
-              <div>
-                <h3 className="font-display text-xl font-semibold">Transaksi berhasil</h3>
+              <div className="bg-[var(--color-pine-tint)] px-8 pb-6 pt-8">
+                <motion.div
+                  initial={{ scale: 0, rotate: -30 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={{ type: 'spring', stiffness: 260, damping: 16, delay: 0.1 }}
+                  className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[var(--color-pine)] text-white shadow-lg ring-8 ring-[var(--color-pine)]/10"
+                >
+                  <CheckCircle2 className="h-9 w-9" />
+                </motion.div>
+                <h3 className="font-display mt-4 text-xl font-semibold">Transaksi berhasil</h3>
                 <p className="mt-1 font-mono text-xs text-[var(--color-ink-soft)]">{receipt.invoiceNo}</p>
               </div>
-              <div className="space-y-1 text-sm">
-                <p>
-                  Total <strong>{rp(receipt.total)}</strong>
+
+              <div className="space-y-4 border-t-2 border-dashed border-[var(--color-border-strong)] p-6">
+                <div className="space-y-1.5 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[var(--color-ink-soft)]">Total</span>
+                    <strong className="font-display text-lg">{rp(receipt.total)}</strong>
+                  </div>
+                  {receipt.method === 'CASH' ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-[var(--color-ink-soft)]">Kembalian</span>
+                      <strong className="font-display text-lg text-[var(--color-pine)]">{rp(receipt.change)}</strong>
+                    </div>
+                  ) : (
+                    <p className="rounded-lg bg-[var(--color-gold-tint)] py-1.5 text-xs font-semibold text-[var(--color-gold)]">
+                      Dicatat sebagai piutang pelanggan
+                    </p>
+                  )}
+                </div>
+                <p className="text-xs text-[var(--color-ink-soft)]">
+                  Stok terpotong otomatis (FEFO) dan jurnal penjualan sudah dibuat.
                 </p>
-                {receipt.method === 'CASH' ? (
-                  <p>
-                    Kembalian <strong>{rp(receipt.change)}</strong>
-                  </p>
-                ) : (
-                  <p className="text-[var(--color-gold)]">Dicatat sebagai piutang pelanggan</p>
-                )}
-              </div>
-              <p className="text-xs text-[var(--color-ink-soft)]">
-                Stok terpotong otomatis (FEFO) dan jurnal penjualan sudah dibuat.
-              </p>
-              <div className="space-y-2">
-                <button
-                  onClick={printReceipt}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--color-pine)] py-2.5 text-sm font-bold text-[var(--color-pine)] hover:bg-[var(--color-pine-tint)]"
-                >
-                  <Printer className="h-4 w-4" /> Cetak struk (F8)
-                </button>
-                <button
-                  onClick={() => setReceipt(null)}
-                  className="w-full rounded-xl bg-[var(--color-pine)] py-2.5 text-sm font-bold text-white hover:bg-[var(--color-pine-light)]"
-                >
-                  Transaksi baru (Enter)
-                </button>
+                <div className="space-y-2">
+                  <button
+                    onClick={printReceipt}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--color-pine)] py-2.5 text-sm font-bold text-[var(--color-pine)] hover:bg-[var(--color-pine-tint)]"
+                  >
+                    <Printer className="h-4 w-4" /> Cetak struk (F8)
+                  </button>
+                  <button
+                    onClick={() => setReceipt(null)}
+                    className="w-full rounded-xl bg-[var(--color-pine)] py-2.5 text-sm font-bold text-white hover:bg-[var(--color-pine-light)]"
+                  >
+                    Transaksi baru (Enter)
+                  </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
