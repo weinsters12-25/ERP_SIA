@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertTriangle,
@@ -259,6 +259,21 @@ function ImagePicker({
 
 /* ---------- modal: tambah / edit barang ---------- */
 
+/* ---------- format angka rupiah untuk input ---------- */
+
+const formatRupiahInput = (value: string | number) => {
+  const digits = String(value).replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+};
+
+const parseRupiahInput = (value: string) => {
+  const digits = value.replace(/\D/g, '');
+  return digits ? Number(digits) : 0;
+};
+
+/* ---------- modal: tambah / edit barang ---------- */
+
 function ProductModal({ product, categories, onClose, onDone }: { product?: Product; categories: string[]; onClose: () => void; onDone: (m: string) => void }) {
   const addProduct = useErpStore((s) => s.addProduct);
   const updateProduct = useErpStore((s) => s.updateProduct);
@@ -269,27 +284,115 @@ function ProductModal({ product, categories, onClose, onDone }: { product?: Prod
   const [name, setName] = useState(product?.name ?? '');
   const [category, setCategory] = useState(product?.category ?? '');
   const [unit, setUnit] = useState(product?.unit ?? 'Pcs');
-  const [price, setPrice] = useState(product?.price ?? 0);
-  const [cost, setCost] = useState(product?.cost ?? 0);
-  const [minStock, setMinStock] = useState(product?.minStock ?? 5);
-  const [initialQty, setInitialQty] = useState(0);
+  const [priceInput, setPriceInput] = useState(formatRupiahInput(product?.price ?? ''));
+  const [costInput, setCostInput] = useState(formatRupiahInput(product?.cost ?? ''));
+  // String dipakai agar kolom batas stok benar-benar bisa kosong.
+  const [minStockInput, setMinStockInput] = useState(product ? String(product.minStock) : '');
+  const [initialQtyInput, setInitialQtyInput] = useState('');
   const [expiredDate, setExpiredDate] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
+  const fieldRefs = useRef<Array<HTMLInputElement | null>>([]);
 
-  // Gambar: awalnya gambar yang sudah tersimpan (mode edit)
+  const price = parseRupiahInput(priceInput);
+  const cost = parseRupiahInput(costInput);
+  const minStock = minStockInput === '' ? 0 : Number(minStockInput);
+  const initialQty = initialQtyInput === '' ? 0 : Number(initialQtyInput);
+
+  // Gambar: awalnya gambar yang sudah tersimpan (mode edit).
   const [image, setImage] = useState<string | null>(product ? getProductImage(images, product.sku) ?? null : null);
   const [imageInfo, setImageInfo] = useState<CompressResult | null>(null);
   const [imageChanged, setImageChanged] = useState(false);
 
+  const clearFieldError = (key: string) => {
+    setFieldErrors((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    setError('');
+  };
+
+  // Enter memindahkan fokus ke input berikutnya, bukan mengirim form secara tidak sengaja.
+  const handleEnter = (index: number, event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    const next = fieldRefs.current[index + 1];
+    if (next) {
+      next.focus();
+      next.select?.();
+    } else {
+      submit();
+    }
+  };
+
+  const inputClass = (key: string) =>
+    `${inputCls} ${fieldErrors[key] ? '!border-[var(--color-rust)] !ring-1 !ring-[var(--color-rust)]/30 focus:!border-[var(--color-rust)]' : ''}`;
+
+  const fieldMessage = (key: string) =>
+    fieldErrors[key] ? (
+      <p id={`${key}-error`} className="mt-1 text-[11px] font-semibold text-[var(--color-rust)]" role="alert">
+        {fieldErrors[key]}
+      </p>
+    ) : null;
+
   const submit = () => {
+    setError('');
+    const nextErrors: Record<string, string> = {};
+
+    if (!isEdit && !sku.trim()) nextErrors.sku = 'SKU wajib diisi.';
+    if (!name.trim()) nextErrors.name = 'Nama barang wajib diisi.';
+    if (!category.trim()) nextErrors.category = 'Kategori wajib diisi.';
+    if (!unit.trim()) nextErrors.unit = 'Satuan wajib diisi.';
+    if (!costInput.trim()) nextErrors.cost = 'Harga beli wajib diisi.';
+    else if (!Number.isSafeInteger(cost) || cost <= 0) nextErrors.cost = 'Masukkan harga beli berupa angka lebih dari 0.';
+    if (!priceInput.trim()) nextErrors.price = 'Harga jual wajib diisi.';
+    else if (!Number.isSafeInteger(price) || price <= 0) nextErrors.price = 'Masukkan harga jual berupa angka lebih dari 0.';
+    else if (Number.isSafeInteger(cost) && cost > 0 && price < cost) nextErrors.price = 'Harga jual tidak boleh lebih rendah dari harga beli.';
+    if (minStockInput.trim() === '') nextErrors.minStock = 'Batas stok menipis wajib diisi.';
+    else if (!Number.isInteger(minStock) || minStock < 0) nextErrors.minStock = 'Isi bilangan bulat minimal 0.';
+
+    if (initialQtyInput !== '' && (!Number.isInteger(initialQty) || initialQty < 0)) {
+      nextErrors.initialQty = 'Stok awal harus bilangan bulat minimal 0.';
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
+      // Fokus otomatis ke kolom wajib pertama yang bermasalah.
+      const order = isEdit
+        ? ['name', 'category', 'unit', 'cost', 'price', 'minStock', 'initialQty']
+        : ['sku', 'name', 'category', 'unit', 'cost', 'price', 'minStock', 'initialQty'];
+      const firstInvalid = order.find((key) => nextErrors[key]);
+      const indexByKey: Record<string, number> = {
+        sku: 0, name: isEdit ? 0 : 1, category: isEdit ? 1 : 2, unit: isEdit ? 2 : 3,
+        cost: isEdit ? 3 : 4, price: isEdit ? 4 : 5, minStock: isEdit ? 5 : 6,
+        initialQty: isEdit ? -1 : 7,
+      };
+      const focusIndex = firstInvalid ? indexByKey[firstInvalid] : -1;
+      if (focusIndex >= 0) window.setTimeout(() => fieldRefs.current[focusIndex]?.focus(), 0);
+      return;
+    }
+
+    const cleanSku = sku.trim().toUpperCase();
+    const cleanName = name.trim();
+    const cleanCategory = category.trim();
+    const cleanUnit = unit.trim();
+
     const res = isEdit
-      ? updateProduct(product!.id, { name, category: category.trim() || 'Lainnya', unit: unit.trim() || 'Pcs', price, cost, minStock })
-      : addProduct({ sku, name, category, unit, price, cost, minStock, initialQty, expiredDate });
-    if (!res.ok) return setError(res.error);
+      ? updateProduct(product!.id, { name: cleanName, category: cleanCategory, unit: cleanUnit, price, cost, minStock })
+      : addProduct({ sku: cleanSku, name: cleanName, category: cleanCategory, unit: cleanUnit, price, cost, minStock, initialQty, expiredDate });
+
+    if (!res.ok) {
+      // Error dari store (misalnya SKU sudah digunakan) tetap ditampilkan, dan SKU difokuskan bila relevan.
+      setError(res.error);
+      if (!isEdit && /sku|kode barang/i.test(res.error)) window.setTimeout(() => fieldRefs.current[0]?.focus(), 0);
+      return;
+    }
 
     let message = res.message;
     if (imageChanged) {
-      const saved = setProductImage(isEdit ? product!.sku : sku, image);
+      const saved = setProductImage(isEdit ? product!.sku : cleanSku, image);
       if (!saved) message += ' (Gambar gagal disimpan: penyimpanan browser penuh.)';
     }
     onDone(message);
@@ -301,68 +404,67 @@ function ProductModal({ product, categories, onClose, onDone }: { product?: Prod
         <ImagePicker
           value={image}
           info={imageInfo}
-          onPick={(r) => {
-            setImage(r.dataUrl);
-            setImageInfo(r);
-            setImageChanged(true);
-          }}
-          onRemove={() => {
-            setImage(null);
-            setImageInfo(null);
-            setImageChanged(true);
-          }}
+          onPick={(r) => { setImage(r.dataUrl); setImageInfo(r); setImageChanged(true); }}
+          onRemove={() => { setImage(null); setImageInfo(null); setImageChanged(true); }}
         />
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="sm:col-span-1">
-            <Field label="SKU">
-              <input className={`${inputCls} font-mono uppercase`} value={sku} disabled={isEdit} onChange={(e) => setSku(e.target.value)} placeholder="BRS-002" />
-            </Field>
-          </div>
-          <div className="sm:col-span-2">
-            <Field label="Nama barang">
-              <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Beras Pandan Wangi 5kg" />
+          {!isEdit && (
+            <div className="sm:col-span-1">
+              <Field label="SKU *">
+                <input ref={(el) => { fieldRefs.current[0] = el; }} className={inputClass('sku') + ' font-mono uppercase'} value={sku} maxLength={40} aria-invalid={!!fieldErrors.sku} aria-describedby={fieldErrors.sku ? 'sku-error' : undefined} onKeyDown={(e) => handleEnter(0, e)} onChange={(e) => { setSku(e.target.value.toUpperCase()); clearFieldError('sku'); }} placeholder="BRS-002" />
+                {fieldMessage('sku')}
+              </Field>
+            </div>
+          )}
+          <div className={isEdit ? 'sm:col-span-3' : 'sm:col-span-2'}>
+            <Field label="Nama barang *">
+              <input ref={(el) => { fieldRefs.current[isEdit ? 0 : 1] = el; }} className={inputClass('name')} value={name} maxLength={120} aria-invalid={!!fieldErrors.name} aria-describedby={fieldErrors.name ? 'name-error' : undefined} onKeyDown={(e) => handleEnter(isEdit ? 0 : 1, e)} onChange={(e) => { setName(e.target.value); clearFieldError('name'); }} placeholder="Beras Pandan Wangi 5kg" />
+              {fieldMessage('name')}
             </Field>
           </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Kategori">
-            <input className={inputCls} list="kategori-list" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Beras & Biji" />
-            <datalist id="kategori-list">
-              {categories.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
+          <Field label="Kategori *">
+            <input ref={(el) => { fieldRefs.current[isEdit ? 1 : 2] = el; }} className={inputClass('category')} list="kategori-list" value={category} maxLength={60} aria-invalid={!!fieldErrors.category} aria-describedby={fieldErrors.category ? 'category-error' : undefined} onKeyDown={(e) => handleEnter(isEdit ? 1 : 2, e)} onChange={(e) => { setCategory(e.target.value); clearFieldError('category'); }} placeholder="Beras & Biji" />
+            {fieldMessage('category')}
+            <datalist id="kategori-list">{categories.map((c) => <option key={c} value={c} />)}</datalist>
           </Field>
-          <Field label="Satuan">
-            <input className={inputCls} value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="Pcs / Kg / Dus" />
+          <Field label="Satuan *">
+            <input ref={(el) => { fieldRefs.current[isEdit ? 2 : 3] = el; }} className={inputClass('unit')} value={unit} maxLength={20} aria-invalid={!!fieldErrors.unit} aria-describedby={fieldErrors.unit ? 'unit-error' : undefined} onKeyDown={(e) => handleEnter(isEdit ? 2 : 3, e)} onChange={(e) => { setUnit(e.target.value); clearFieldError('unit'); }} placeholder="Pcs / Kg / Dus" />
+            {fieldMessage('unit')}
           </Field>
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Harga beli / modal (Rp)">
-            <input type="number" className={inputCls} value={cost || ''} onChange={(e) => setCost(Number(e.target.value))} />
+          <Field label="Harga beli / modal (Rp) *" hint="Contoh: 15.000">
+            <input ref={(el) => { fieldRefs.current[isEdit ? 3 : 4] = el; }} type="text" inputMode="numeric" autoComplete="off" className={inputClass('cost')} value={costInput} maxLength={18} aria-invalid={!!fieldErrors.cost} aria-describedby={fieldErrors.cost ? 'cost-error' : undefined} onKeyDown={(e) => handleEnter(isEdit ? 3 : 4, e)} onChange={(e) => { setCostInput(formatRupiahInput(e.target.value)); clearFieldError('cost'); }} placeholder="0" />
+            {fieldMessage('cost')}
           </Field>
-          <Field label="Harga jual (Rp)">
-            <input type="number" className={inputCls} value={price || ''} onChange={(e) => setPrice(Number(e.target.value))} />
+          <Field label="Harga jual (Rp) *" hint="Contoh: 18.000">
+            <input ref={(el) => { fieldRefs.current[isEdit ? 4 : 5] = el; }} type="text" inputMode="numeric" autoComplete="off" className={inputClass('price')} value={priceInput} maxLength={18} aria-invalid={!!fieldErrors.price} aria-describedby={fieldErrors.price ? 'price-error' : undefined} onKeyDown={(e) => handleEnter(isEdit ? 4 : 5, e)} onChange={(e) => { setPriceInput(formatRupiahInput(e.target.value)); clearFieldError('price'); }} placeholder="0" />
+            {fieldMessage('price')}
           </Field>
-          <Field label="Batas stok menipis">
-            <input type="number" className={inputCls} value={minStock} onChange={(e) => setMinStock(Number(e.target.value))} />
+          <Field label="Batas stok menipis *" hint="Isi sendiri, misalnya 5 atau 10">
+            <input ref={(el) => { fieldRefs.current[isEdit ? 5 : 6] = el; }} type="number" inputMode="numeric" min="0" step="1" className={inputClass('minStock')} value={minStockInput} aria-invalid={!!fieldErrors.minStock} aria-describedby={fieldErrors.minStock ? 'minStock-error' : undefined} onKeyDown={(e) => handleEnter(isEdit ? 5 : 6, e)} onChange={(e) => { setMinStockInput(e.target.value); clearFieldError('minStock'); }} placeholder="Masukkan batas stok" />
+            {fieldMessage('minStock')}
           </Field>
         </div>
 
         {!isEdit && (
           <div className="grid grid-cols-1 gap-3 rounded-xl bg-[var(--color-canvas-sunk)] p-3 sm:grid-cols-2">
-            <Field label="Stok awal">
-              <input type="number" className={inputCls} value={initialQty || ''} onChange={(e) => setInitialQty(Number(e.target.value))} placeholder="0" />
+            <Field label="Stok awal" hint="Opsional; jika kosong dianggap 0">
+              <input ref={(el) => { fieldRefs.current[7] = el; }} type="number" inputMode="numeric" min="0" step="1" className={inputClass('initialQty')} value={initialQtyInput} aria-invalid={!!fieldErrors.initialQty} aria-describedby={fieldErrors.initialQty ? 'initialQty-error' : undefined} onKeyDown={(e) => handleEnter(7, e)} onChange={(e) => { setInitialQtyInput(e.target.value); clearFieldError('initialQty'); }} placeholder="Kosongkan jika belum ada stok" />
+              {fieldMessage('initialQty')}
             </Field>
-            <Field label="Kadaluarsa batch">
-              <input type="date" className={inputCls} value={expiredDate} onChange={(e) => setExpiredDate(e.target.value)} />
+            <Field label="Kadaluarsa batch" hint="Opsional">
+              <input ref={(el) => { fieldRefs.current[8] = el; }} type="date" className={inputCls} value={expiredDate} onKeyDown={(e) => handleEnter(8, e)} onChange={(e) => setExpiredDate(e.target.value)} />
             </Field>
           </div>
         )}
 
+        <p className="text-[10px] text-[var(--color-ink-soft)]">* Wajib diisi. Foto produk, stok awal, dan tanggal kedaluwarsa bersifat opsional.</p>
         <ErrorBox text={error} />
       </div>
       <FormActions onClose={onClose} submitLabel={isEdit ? 'Simpan perubahan' : 'Simpan barang'} onSubmit={submit} />
