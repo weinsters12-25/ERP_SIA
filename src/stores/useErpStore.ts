@@ -25,7 +25,16 @@ export interface Product {
   batches: Batch[];
 }
 
-export type JournalType = 'SALES' | 'EXPENSE' | 'RECEIVABLE' | 'PAYABLE' | 'ADJUSTMENT' | 'PURCHASE' | 'COGS';
+export type JournalType =
+  | 'SALES'
+  | 'EXPENSE'
+  | 'RECEIVABLE'
+  | 'PAYABLE'
+  | 'ADJUSTMENT'
+  | 'PURCHASE'
+  | 'COGS'
+  | 'CAPITAL' // setoran modal / saldo awal / tarik pemilik (prive)
+  | 'TRANSFER'; // pindah saldo antar kas/bank
 
 export interface Journal {
   id: string;
@@ -238,6 +247,12 @@ interface ErpState extends ErpData {
 
   /** Finance: catat biaya operasional, kurangi kas/bank + jurnal. */
   addExpense: (title: string, amount: number, accountId: string) => ActionResult;
+
+  /** Finance: setor modal / saldo awal, atau tarik uang oleh pemilik (prive). */
+  adjustCapital: (kind: 'DEPOSIT' | 'WITHDRAW', accountId: string, amount: number, note: string) => ActionResult;
+
+  /** Finance: pindahkan saldo antar akun kas/bank. */
+  transferFunds: (fromId: string, toId: string, amount: number, note: string) => ActionResult;
 
   /** Muat dataset dari script seed (public/demo-data.json). */
   importData: (seedId: string, data: ErpData) => void;
@@ -721,6 +736,68 @@ export const useErpStore = create<ErpState>()(
         });
 
         return { ok: true, message: `Biaya operasional tercatat dan jurnal ${journal.id} terbuat!` };
+      },
+
+      adjustCapital: (kind, accountId, amount, note) => {
+        const state = get();
+        const account = state.accounts.find((a) => a.id === accountId);
+        if (!account) return { ok: false, error: 'Pilih akun kas / bank.' };
+        if (!(amount > 0)) return { ok: false, error: 'Nominal harus lebih dari 0.' };
+
+        const isDeposit = kind === 'DEPOSIT';
+        if (!isDeposit && account.balance < amount) return { ok: false, error: `Saldo ${account.name} tidak cukup.` };
+
+        const accLabel = `${account.id} - ${account.name}`;
+        const extra = note.trim() ? ` - ${note.trim()}` : '';
+        const journal = makeJournal(state.journalSeq, {
+          description: isDeposit ? `Setoran modal / saldo awal${extra}` : `Penarikan pemilik (prive)${extra}`,
+          debitAccount: isDeposit ? accLabel : '302 - Prive Pemilik',
+          creditAccount: isDeposit ? '301 - Modal Pemilik' : accLabel,
+          amount,
+          type: 'CAPITAL',
+        });
+
+        set({
+          journals: [journal, ...state.journals],
+          journalSeq: state.journalSeq + 1,
+          accounts: state.accounts.map((a) =>
+            a.id === accountId ? { ...a, balance: a.balance + (isDeposit ? amount : -amount) } : a
+          ),
+        });
+
+        return {
+          ok: true,
+          message: `${isDeposit ? 'Saldo' : 'Penarikan'} ${account.name} dicatat. Jurnal ${journal.id} dibuat.`,
+        };
+      },
+
+      transferFunds: (fromId, toId, amount, note) => {
+        const state = get();
+        if (fromId === toId) return { ok: false, error: 'Akun asal dan tujuan tidak boleh sama.' };
+        const from = state.accounts.find((a) => a.id === fromId);
+        const to = state.accounts.find((a) => a.id === toId);
+        if (!from || !to) return { ok: false, error: 'Pilih akun asal dan tujuan.' };
+        if (!(amount > 0)) return { ok: false, error: 'Nominal harus lebih dari 0.' };
+        if (from.balance < amount) return { ok: false, error: `Saldo ${from.name} tidak cukup.` };
+
+        const extra = note.trim() ? ` - ${note.trim()}` : '';
+        const journal = makeJournal(state.journalSeq, {
+          description: `Transfer ${from.name} ke ${to.name}${extra}`,
+          debitAccount: `${to.id} - ${to.name}`,
+          creditAccount: `${from.id} - ${from.name}`,
+          amount,
+          type: 'TRANSFER',
+        });
+
+        set({
+          journals: [journal, ...state.journals],
+          journalSeq: state.journalSeq + 1,
+          accounts: state.accounts.map((a) =>
+            a.id === fromId ? { ...a, balance: a.balance - amount } : a.id === toId ? { ...a, balance: a.balance + amount } : a
+          ),
+        });
+
+        return { ok: true, message: `Transfer ke ${to.name} berhasil. Jurnal ${journal.id} dibuat.` };
       },
 
       importData: (seedId, data) => {

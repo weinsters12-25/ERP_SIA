@@ -1,4 +1,3 @@
-
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
@@ -13,8 +12,6 @@ import {
   DollarSign,
   BookOpen,
   Bell,
-  Search,
-  ChevronDown,
   ChevronsLeft,
   Leaf,
   AlertTriangle,
@@ -61,8 +58,8 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: 'Keuangan',
     items: [
-      { name: 'Pengeluaran (PO & AP)', href: '/purchasing', icon: TrendingDown },
-      { name: 'Pendapatan (AR & WA)', href: '/sales', icon: DollarSign },
+      { name: 'Pengeluaran', href: '/purchasing', icon: TrendingDown },
+      { name: 'Piuntang', href: '/sales', icon: DollarSign },
       { name: 'Jurnal & Kas', href: '/finance', icon: BookOpen },
     ],
   },
@@ -364,17 +361,6 @@ function DashboardShell({
 
           <div className="flex items-center gap-3">
 
-            {/* PENCARIAN */}
-            <div className="relative hidden sm:block">
-              <Search className="pointer-events-none absolute left-3 top-2.5 h-3.5 w-3.5 text-[var(--color-ink-soft)]" />
-
-              <input
-                type="text"
-                placeholder="Cari cepat..."
-                className="w-52 rounded-lg border border-[var(--color-border)] bg-[var(--color-canvas-sunk)] py-2 pl-8 pr-3 text-xs text-[var(--color-ink)] placeholder-[var(--color-ink-soft)] transition-all focus:w-64 focus:border-[var(--color-gold)] focus:bg-white focus:outline-none"
-              />
-            </div>
-
             {/* NOTIFIKASI */}
             <div className="relative">
               <button
@@ -432,22 +418,28 @@ function DashboardShell({
             </div>
 
             {/* INFORMASI PENGGUNA LOGIN */}
-            <div className="flex items-center gap-2.5 rounded-xl border border-[var(--color-border)] py-1 pl-1 pr-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-pine-tint)] text-xs font-bold text-[var(--color-pine)]">
-                {currentUser?.name?.charAt(0).toUpperCase() || 'U'}
+            <div className="group flex items-center gap-3 rounded-2xl border border-[var(--color-border)] bg-gradient-to-r from-white to-[var(--color-pine-tint)] py-1.5 pl-1.5 pr-4 shadow-xs transition-all duration-200 hover:border-[var(--color-pine)]/30 hover:shadow-md">
+
+              {/* Avatar + indikator online */}
+              <div className="relative">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--color-pine)] to-[#0a3d2e] text-sm font-bold text-[var(--color-gold-light)] shadow-sm ring-2 ring-white transition-transform duration-200 group-hover:scale-105">
+                  {currentUser?.name?.charAt(0).toUpperCase() || 'U'}
+                </div>
+
+                <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-white" />
               </div>
 
-              <div className="text-left text-xs">
-                <p className="font-semibold text-[var(--color-ink)]">
+              {/* Nama + role */}
+              <div className="text-left leading-tight">
+                <p className="text-[13px] font-semibold text-[var(--color-ink)]">
                   {currentUser?.name || 'Pengguna'}
                 </p>
 
-                <p className="text-[var(--color-ink-soft)]">
+                <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-[var(--color-gold-tint)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-pine)]">
+                  <span className="h-1 w-1 rounded-full bg-[var(--color-gold)]" />
                   {currentUser?.role || 'Pengguna'}
-                </p>
+                </span>
               </div>
-
-              <ChevronDown className="h-3.5 w-3.5 text-[var(--color-ink-soft)]" />
             </div>
           </div>
         </header>

@@ -41,7 +41,7 @@ const STORE_NAME = 'TOSERBA';
 const STORE_TAGLINE = 'Nature Fresh · Toko Sembako';
 const STORE_ADDRESS = 'Alamat toko Anda di sini';
 const STORE_PHONE = 'Telp/WA: 08xx-xxxx-xxxx';
-const CASHIER_NAME = 'Admin Toko';
+const CASHIER_NAME = '';
 
 /* ---------- Pembantu tampilan ---------- */
 const TILE_TINTS = ['#e6f0ea', '#fbf3de', '#fbe9e5', '#e8eef7', '#efe8f5', '#e9f3f1'];

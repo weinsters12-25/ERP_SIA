@@ -36,3 +36,7 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
 npm i @zxing/browser @zxing/library
+
+npx tsx scripts/seed-demo.ts            # buat data demo → refresh browser
+npx tsx scripts/seed-demo.ts --clear    # kosongkan semua data di browser
+npx tsx scripts/seed-demo.ts --remove   # hapus file demo (mis. sebelum produksi)
