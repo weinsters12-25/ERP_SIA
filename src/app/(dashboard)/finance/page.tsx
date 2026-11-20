@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus,
@@ -24,6 +24,10 @@ import {
   ArrowRight,
   PiggyBank,
   ArrowLeftRight,
+  FileText,
+  FileDown,
+  Printer,
+  ClipboardList,
 } from 'lucide-react';
 import {
   useErpStore,
@@ -36,6 +40,7 @@ import {
   type JournalType,
 } from '@/stores/useErpStore';
 import { ErrorBox } from '@/components/ErpUi';
+import ReportModal from '@/components/ReportModal';
 
 /* =========================================================================
    KONSTANTA
@@ -73,6 +78,14 @@ const EXPENSE_CATEGORIES = [
 ];
 
 const PAGE_SIZE = 15;
+
+/** Identitas toko yang tampil di invoice. Ubah sesuai data toko Anda. */
+const STORE = {
+  name: 'TOSERBA',
+  tagline: 'Nature Fresh · Toko Sembako',
+  address: 'Alamat toko Anda di sini',
+  phone: 'Telp/WA: 08xx-xxxx-xxxx',
+};
 
 /* =========================================================================
    HELPER
@@ -193,6 +206,259 @@ function downloadCsv(rows: Journal[]) {
   a.download = `jurnal-${toDateStr(new Date())}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/* =========================================================================
+   INVOICE (bertema struk TOSERBA)
+   Dibuat sebagai dokumen HTML mandiri, dipakai untuk pratinjau (iframe),
+   cetak / simpan PDF, dan unduh file HTML. Satu sumber, hasil selalu sama.
+   ========================================================================= */
+
+const escHtml = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+
+interface InvoiceMeta {
+  number: string;
+  isSales: boolean;
+  title: string;
+  typeLabel: string;
+  method: string | null;
+  status: 'LUNAS' | 'BELUM LUNAS' | 'TERCATAT';
+}
+
+function getInvoiceMeta(j: Journal): InvoiceMeta {
+  const isSales = j.type === 'SALES';
+  const match = j.description.match(/INV-\d+/i);
+  const isCredit = isSales && j.debitAccount.startsWith('104');
+
+  let method: string | null = null;
+  if (isSales) {
+    if (isCredit) method = 'Bon / Piutang';
+    else if (j.debitAccount.startsWith('101')) method = 'Tunai';
+    else method = 'Transfer Bank';
+  }
+
+  return {
+    number: match ? match[0].toUpperCase() : j.id,
+    isSales,
+    title: isSales ? 'INVOICE PENJUALAN' : 'BUKTI TRANSAKSI',
+    typeLabel: TYPE_META[j.type]?.label ?? j.type,
+    method,
+    status: isSales ? (isCredit ? 'BELUM LUNAS' : 'LUNAS') : 'TERCATAT',
+  };
+}
+
+function buildInvoiceHtml(j: Journal): string {
+  const m = getInvoiceMeta(j);
+  const printedAt = new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
+
+  const row = (label: string, value: string, cls = '') =>
+    `<div class="row"><span>${escHtml(label)}</span><span class="${cls}">${escHtml(value)}</span></div>`;
+
+  const metaRows = [
+    row(m.isSales ? 'No. Invoice' : 'No. Bukti', m.number, 'mono'),
+    row('Tanggal', j.date, 'mono'),
+    row('No. Jurnal', j.id, 'mono'),
+    m.isSales ? row('Pembayaran', m.method ?? '-', 'mono') : row('Jenis', m.typeLabel, 'mono'),
+  ].join('');
+
+  const statusClass = m.status === 'LUNAS' ? 'ok' : m.status === 'BELUM LUNAS' ? 'warn' : 'neutral';
+
+  const footer = m.isSales
+    ? `<div class="thanks">Terima kasih, Kak! 💚</div>
+       <div class="gold">Belanja hemat, hidup sehat ✨</div>
+       <div class="gold">Sampai jumpa lagi ya! 👋</div>
+       <div class="note">Barang yang sudah dibeli tidak dapat ditukar</div>`
+    : `<div class="thanks">Dokumen pencatatan 📒</div>
+       <div class="gold">Dibuat otomatis oleh Toserba ERP</div>
+       <div class="note">Bukti ini bersifat internal dan bukan faktur pajak</div>`;
+
+  return `<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escHtml(m.isSales ? 'Invoice' : 'Bukti')} ${escHtml(m.number)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-family:'Segoe UI',Roboto,Arial,sans-serif;color:#17352b;padding:16px;display:flex;justify-content:center}
+  .card{width:100%;max-width:360px;border:2px dashed #0b4a37;border-radius:24px;padding:22px 20px 18px;background:#fff}
+  .center{text-align:center}
+  .deco{font-size:20px;letter-spacing:10px}
+  .brand{font-family:'Playfair Display',Georgia,'Times New Roman',serif;font-size:30px;font-weight:800;letter-spacing:.12em;color:#0b4a37;margin-top:2px}
+  .tag{font-size:12px;font-weight:700;font-style:italic;color:#b8860b;margin-top:2px}
+  .addr{font-size:11px;color:#4b5f57;margin-top:5px;line-height:1.55}
+  .pill{display:inline-block;margin-top:12px;background:#0b4a37;color:#fff;font-size:11px;font-weight:800;letter-spacing:.1em;padding:6px 18px;border-radius:999px}
+  .dots{border-top:2px dotted #c9a227;margin:16px 0}
+  .thin{border-top:1px solid #d9e4de;margin:12px 0}
+  .mono{font-family:'Courier New',Courier,monospace}
+  .row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-size:12px;padding:2.5px 0;color:#2b4a3f}
+  .row .mono{color:#17352b;text-align:right;word-break:break-word}
+  .item{display:flex;align-items:center;gap:8px;margin-top:2px}
+  .qty{flex-shrink:0;font-size:11px;font-weight:800;color:#0b4a37;background:#fdf3d4;border:1.5px solid #c9a227;border-radius:999px;padding:2px 9px}
+  .iname{font-size:13px;font-weight:800;color:#0b4a37;line-height:1.35}
+  .sub{margin-top:3px;font-size:11px;color:#5c7168}
+  .total{margin-top:16px;background:#e3efe8;border:2px solid #0b4a37;border-radius:16px;padding:14px 14px 12px}
+  .tline{display:flex;justify-content:space-between;align-items:baseline}
+  .tline .l{font-size:18px;font-weight:800;color:#0b4a37;letter-spacing:.02em}
+  .tline .r{font-size:22px;font-weight:800;color:#0b4a37}
+  .total .row{margin-top:3px}
+  .status{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.06em;padding:3px 12px;border-radius:999px}
+  .status.ok{background:#0b4a37;color:#fff}
+  .status.warn{background:#fef3c7;color:#92400e;border:1.5px solid #f59e0b}
+  .status.neutral{background:#e2e8f0;color:#334155}
+  .acc{margin-top:14px;border:1px dashed #b8c9c0;border-radius:12px;padding:9px 12px;background:#f8fbf9}
+  .acc .h{font-size:10px;font-weight:800;color:#5c7168;letter-spacing:.08em;margin-bottom:4px}
+  .acc .row{font-size:11px;padding:1.5px 0}
+  .thanks{font-family:'Playfair Display',Georgia,serif;font-size:19px;font-weight:700;color:#0b4a37;margin-top:2px}
+  .gold{font-size:11.5px;font-weight:800;color:#b8860b;margin-top:3px}
+  .note{font-size:10.5px;color:#6b7f76;margin-top:12px}
+  .printed{font-size:10px;color:#93a39b;margin-top:5px}
+  @page{margin:10mm}
+  @media print{body{padding:0}.card{max-width:100%}}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="center">
+      <div class="deco">🌿 🛒 🌿</div>
+      <div class="brand">${escHtml(STORE.name)}</div>
+      <div class="tag">${escHtml(STORE.tagline)}</div>
+      <div class="addr">${escHtml(STORE.address)}<br>${escHtml(STORE.phone)}</div>
+      <div class="pill">✨ ${escHtml(m.title)} ✨</div>
+    </div>
+
+    <div class="dots"></div>
+
+    ${metaRows}
+
+    <div class="thin"></div>
+
+    <div class="item">
+      <span class="qty">${m.isSales ? '1×' : escHtml(m.typeLabel)}</span>
+      <span class="iname">${escHtml(j.description)}</span>
+    </div>
+    <div class="row sub mono"><span>${m.isSales ? '@ ' + escHtml(rp(j.amount)) : 'Nominal'}</span><span>${escHtml(rp(j.amount))}</span></div>
+
+    <div class="total">
+      <div class="tline"><span class="l">TOTAL</span><span class="r mono">${escHtml(rp(j.amount))}</span></div>
+      ${m.isSales ? row('Metode', m.method ?? '-', 'mono') : ''}
+      <div class="row"><span>Status</span><span><span class="status ${statusClass}">${m.status}</span></span></div>
+    </div>
+
+    <div class="acc">
+      <div class="h">PENCATATAN JURNAL</div>
+      ${row('Debit', j.debitAccount, 'mono')}
+      ${row('Kredit', j.creditAccount, 'mono')}
+    </div>
+
+    <div class="dots"></div>
+
+    <div class="center">
+      ${footer}
+      <div class="printed">Dicetak ${escHtml(printedAt)}</div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+function downloadInvoiceHtml(j: Journal) {
+  const m = getInvoiceMeta(j);
+  const blob = new Blob([buildInvoiceHtml(j)], { type: 'text/html;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${m.isSales ? 'invoice' : 'bukti'}-${m.number}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function InvoiceModal({ journal, onClose }: { journal: Journal; onClose: () => void }) {
+  const meta = getInvoiceMeta(journal);
+  const html = useMemo(() => buildInvoiceHtml(journal), [journal]);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const [frameHeight, setFrameHeight] = useState(640);
+
+  const fitFrame = () => {
+    const doc = frameRef.current?.contentDocument;
+    if (doc) setFrameHeight(doc.documentElement.scrollHeight);
+  };
+
+  const handlePrint = () => {
+    const win = frameRef.current?.contentWindow;
+    if (!win) return;
+    win.focus();
+    win.print();
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${meta.title} ${meta.number}`}
+    >
+      <motion.div
+        initial={{ scale: 0.95 }}
+        animate={{ scale: 1 }}
+        exit={{ scale: 0.95 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white border border-slate-200 rounded-2xl p-5 max-w-md w-full shadow-xl space-y-4 relative"
+      >
+        <button
+          onClick={onClose}
+          className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 p-1"
+          aria-label="Tutup"
+        >
+          <X className="h-4 w-4" />
+        </button>
+
+        <div>
+          <h3 className="text-base font-bold text-slate-800">{meta.isSales ? 'Invoice' : 'Bukti Transaksi'}</h3>
+          <p className="text-xs text-slate-500 mt-0.5 font-mono">{meta.number}</p>
+        </div>
+
+        <div className="max-h-[62vh] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
+          <iframe
+            ref={frameRef}
+            title={`Pratinjau ${meta.title}`}
+            srcDoc={html}
+            onLoad={fitFrame}
+            style={{ height: frameHeight }}
+            className="w-full border-0 bg-white"
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={() => downloadInvoiceHtml(journal)}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 border border-slate-200 text-slate-600 font-bold rounded-xl text-xs hover:bg-slate-50 transition-colors"
+          >
+            <FileDown className="h-3.5 w-3.5" />
+            Unduh HTML
+          </button>
+          <button
+            onClick={handlePrint}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-emerald-700 text-white font-bold rounded-xl text-xs hover:bg-emerald-600 shadow-md transition-colors"
+          >
+            <Printer className="h-3.5 w-3.5" />
+            Unduh PDF / Cetak
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-400 leading-relaxed">
+          Untuk menyimpan sebagai PDF, pilih <b>Simpan sebagai PDF</b> pada pilihan printer di jendela cetak.
+        </p>
+      </motion.div>
+    </motion.div>
+  );
 }
 
 /* =========================================================================
@@ -890,6 +1156,12 @@ export default function FinancePage() {
   const [page, setPage] = useState(1);
   const [detailKind, setDetailKind] = useState<DetailKind | null>(null);
 
+  // Invoice / bukti transaksi yang sedang dibuka
+  const [invoiceJournal, setInvoiceJournal] = useState<Journal | null>(null);
+
+  // Laporan keuangan lengkap (harian / bulanan / tahunan)
+  const [isReportOpen, setIsReportOpen] = useState(false);
+
   // Kelola saldo (setoran / transfer / tarik)
   const [isFundModalOpen, setIsFundModalOpen] = useState(false);
   const [fundMode, setFundMode] = useState<'DEPOSIT' | 'TRANSFER' | 'WITHDRAW'>('DEPOSIT');
@@ -910,16 +1182,17 @@ export default function FinancePage() {
 
   // Esc menutup modal yang sedang terbuka
   useEffect(() => {
-    if (!isFundModalOpen && !isExpenseModalOpen) return;
+    if (!isFundModalOpen && !isExpenseModalOpen && !invoiceJournal) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setIsFundModalOpen(false);
         setIsExpenseModalOpen(false);
+        setInvoiceJournal(null);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isFundModalOpen, isExpenseModalOpen]);
+  }, [isFundModalOpen, isExpenseModalOpen, invoiceJournal]);
 
   /* ---------- Data turunan ---------- */
 
@@ -1082,6 +1355,13 @@ export default function FinancePage() {
               </button>
             ))}
           </div>
+          <button
+            onClick={() => setIsReportOpen(true)}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-md transition-all"
+          >
+            <ClipboardList className="h-4 w-4" />
+            <span>Laporan Lengkap</span>
+          </button>
           <button
             onClick={() => openFundModal('DEPOSIT')}
             className="flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs shadow-sm transition-all"
@@ -1322,7 +1602,8 @@ export default function FinancePage() {
       </div>
 
       {/* Filter jurnal */}
-      <div id="tabel-jurnal" className="glass-card-light rounded-2xl p-4 space-y-3 scroll-mt-4">
+      <div id="tabel-jurnal" className="glass-card-light rounded-2xl overflow-hidden shadow-xs scroll-mt-4">
+      <div className="p-4 space-y-3 border-b border-slate-100">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="relative w-full sm:w-80">
             <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
@@ -1378,8 +1659,7 @@ export default function FinancePage() {
         </div>
       </div>
 
-      {/* Tabel jurnal */}
-      <div className="glass-card-light rounded-2xl overflow-hidden shadow-xs">
+        {/* Tabel jurnal */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs text-slate-700">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider">
@@ -1389,12 +1669,13 @@ export default function FinancePage() {
                 <th className="py-3.5 px-4">Akun Debit</th>
                 <th className="py-3.5 px-4">Akun Kredit</th>
                 <th className="py-3.5 px-4 text-right">Nominal</th>
+                <th className="py-3.5 px-4 text-center">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {pagedJournals.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-14 text-center text-slate-400">
+                  <td colSpan={6} className="py-14 text-center text-slate-400">
                     {journals.length === 0
                       ? 'Belum ada jurnal. Jurnal terbentuk otomatis dari transaksi POS, PO, dan biaya operasional.'
                       : 'Tidak ada jurnal yang cocok dengan filter.'}
@@ -1431,6 +1712,16 @@ export default function FinancePage() {
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-right font-black text-slate-900">{rp(j.amount)}</td>
+                    <td className="py-3.5 px-4 text-center">
+                      <button
+                        onClick={() => setInvoiceJournal(j)}
+                        title={j.type === 'SALES' ? 'Lihat & unduh invoice' : 'Lihat & unduh bukti transaksi'}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-600 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                        {j.type === 'SALES' ? 'Invoice' : 'Bukti'}
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -1487,6 +1778,18 @@ export default function FinancePage() {
               setTimeout(() => document.getElementById('tabel-jurnal')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
             }}
           />
+        )}
+      </AnimatePresence>
+
+      {/* MODAL LAPORAN LENGKAP */}
+      <AnimatePresence>
+        {isReportOpen && <ReportModal key="report-modal" onClose={() => setIsReportOpen(false)} />}
+      </AnimatePresence>
+
+      {/* MODAL INVOICE */}
+      <AnimatePresence>
+        {invoiceJournal && (
+          <InvoiceModal key={invoiceJournal.id} journal={invoiceJournal} onClose={() => setInvoiceJournal(null)} />
         )}
       </AnimatePresence>
 
