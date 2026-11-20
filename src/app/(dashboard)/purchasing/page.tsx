@@ -252,9 +252,8 @@ function CreatePoModal({ onClose, onDone, onAddSupplier }: { onClose: () => void
                     key={key}
                     type="button"
                     onClick={() => setTerm(key)}
-                    className={`flex items-center justify-center gap-1.5 rounded-lg py-2 transition-all ${
-                      term === key ? 'bg-[var(--color-pine)] text-white shadow-sm' : 'text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas-sunk)]'
-                    }`}
+                    className={`flex items-center justify-center gap-1.5 rounded-lg py-2 transition-all ${term === key ? 'bg-[var(--color-pine)] text-white shadow-sm' : 'text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas-sunk)]'
+                      }`}
                   >
                     <Icon className="h-3.5 w-3.5" /> {label}
                   </button>
@@ -269,11 +268,10 @@ function CreatePoModal({ onClose, onDone, onAddSupplier }: { onClose: () => void
                     type="button"
                     disabled={term === 'CASH'}
                     onClick={() => setTermDays(d)}
-                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                      termDays === d
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${termDays === d
                         ? 'border-[var(--color-pine)] bg-[var(--color-pine-tint)] text-[var(--color-pine)]'
                         : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-ink-soft)]'
-                    }`}
+                      }`}
                   >
                     {d}h
                   </button>
@@ -465,7 +463,16 @@ function PayModal({ po, onClose, onDone }: { po: PurchaseOrder; onClose: () => v
     <ModalShell title="Bayar utang supplier" subtitle={`${po.id} · ${po.supplierName}`} onClose={onClose}>
       <div className="space-y-3">
         <Field label="Nominal pembayaran (Rp)" hint={`Sisa utang: ${rp(remaining)}. Boleh dicicil.`}>
-          <input type="number" className={`${inputCls} text-base font-bold`} value={amount || ''} onChange={(e) => setAmount(Number(e.target.value))} />
+          <input
+            type="text"
+            inputMode="numeric"
+            className={`${inputCls} text-base font-bold`}
+            value={amount ? amount.toLocaleString('id-ID') : ''}
+            onChange={(e) => {
+              const value = e.target.value.replace(/\D/g, '');
+              setAmount(Number(value));
+            }}
+          />
         </Field>
         <div className="flex flex-wrap gap-2">
           {[
@@ -476,11 +483,10 @@ function PayModal({ po, onClose, onDone }: { po: PurchaseOrder; onClose: () => v
               key={label as string}
               type="button"
               onClick={() => setAmount(v as number)}
-              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                amount === v
+              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${amount === v
                   ? 'border-[var(--color-pine)] bg-[var(--color-pine-tint)] text-[var(--color-pine)]'
                   : 'border-[var(--color-border)] text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas-sunk)]'
-              }`}
+                }`}
             >
               {label}
             </button>
@@ -743,11 +749,10 @@ export default function PurchasingPage() {
             <button
               key={key}
               onClick={() => setFilter(key)}
-              className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 transition-colors ${
-                filter === key
+              className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 transition-colors ${filter === key
                   ? 'border-[var(--color-pine)] bg-[var(--color-pine)] text-white shadow-sm'
                   : 'border-[var(--color-border)] text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas-sunk)]'
-              }`}
+                }`}
             >
               {label}
               <span className={`rounded-full px-1.5 py-0.5 text-[10px] leading-none ${filter === key ? 'bg-white/20' : 'bg-[var(--color-canvas-sunk)]'}`}>
