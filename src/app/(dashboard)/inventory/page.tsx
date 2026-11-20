@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertTriangle,
@@ -10,15 +10,14 @@ import {
   CheckCircle2,
   ChevronRight,
   Edit3,
-  ImagePlus,
   LayoutGrid,
   List,
   Package,
   PackagePlus,
   Pencil,
   Plus,
+  ScanLine,
   Search,
-  Trash2,
   Wallet,
   X,
 } from 'lucide-react';
@@ -29,27 +28,15 @@ import {
   getDaysLeft,
   getExpiryStatus,
   type Product,
-  type ExpiryStatus,
 } from '@/stores/useErpStore';
 import { ErrorBox, Field, FormActions, ModalShell, inputCls, rp } from '@/components/ErpUi';
-import {
-  compressToWebp,
-  getProductImage,
-  setProductImage,
-  useProductImages,
-  type CompressResult,
-} from '@/stores/useProductImages';
-
-const batchStyle: Record<ExpiryStatus, string> = {
-  expired: 'bg-[var(--color-rust)] text-white border-transparent',
-  kritis: 'bg-[var(--color-rust-tint)] text-[var(--color-rust)] border-[var(--color-rust)]/30',
-  peringatan: 'bg-[var(--color-gold-tint)] text-[var(--color-gold)] border-[var(--color-gold)]/30',
-  aman: 'bg-[var(--color-pine-tint)] text-[var(--color-pine)] border-[var(--color-pine)]/20',
-};
+import { getProductImage, useProductImages } from '@/stores/useProductImages';
+import { getBarcodeOf, useProductBarcodes } from '@/stores/useProductBarcodes';
+import { ProductModal, batchStyle, emojiFor } from '@/components/ProductFormModal';
 
 type Modal =
   | null
-  | { type: 'product'; product?: Product }
+  | { type: 'product'; product?: Product; autoScan?: boolean }
   | { type: 'batch'; product: Product }
   | { type: 'opname'; product: Product };
 
@@ -58,14 +45,6 @@ type Sort = 'name' | 'stock' | 'expiry';
 type View = 'table' | 'cards';
 
 /* ---------- pembantu tampilan ---------- */
-
-const EMOJI_RULES: [RegExp, string][] = [
-  [/beras/, '🍚'], [/minyak/, '🫗'], [/gula/, '🍬'], [/telur|telor/, '🥚'], [/tepung|terigu/, '🌾'],
-  [/mie|indomie|bihun/, '🍜'], [/kecap|saus|sambal/, '🌶️'], [/susu/, '🥛'], [/kopi/, '☕'], [/teh/, '🍵'],
-  [/garam/, '🧂'], [/sabun|deterjen/, '🧼'], [/kaleng|sarden|kornet/, '🥫'], [/ayam|daging|ikan/, '🍗'],
-];
-const emojiFor = (name: string) => EMOJI_RULES.find(([re]) => re.test(name.toLowerCase()))?.[1] ?? '📦';
-const kb = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
 function Thumb({ p, src, size = 44, onZoom }: { p: Product; src?: string; size?: number; onZoom?: (src: string, name: string) => void }) {
   const style = { width: size, height: size };
@@ -155,320 +134,6 @@ function ActionButtons({ onBatch, onOpname, onEdit, labeled }: { onBatch: () => 
         <Pencil className="h-3.5 w-3.5" /> {labeled && 'Edit'}
       </button>
     </div>
-  );
-}
-
-/* ---------- pemilih gambar (kompres ke WebP) ---------- */
-
-function ImagePicker({
-  value,
-  info,
-  onPick,
-  onRemove,
-}: {
-  value: string | null;
-  info: CompressResult | null;
-  onPick: (r: CompressResult) => void;
-  onRemove: () => void;
-}) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [drag, setDrag] = useState(false);
-
-  const handle = async (file?: File | null) => {
-    if (!file) return;
-    setErr('');
-    setBusy(true);
-    try {
-      onPick(await compressToWebp(file));
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Gagal memproses gambar.');
-    } finally {
-      setBusy(false);
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  };
-
-  const saving = info && info.originalBytes > 0 ? Math.max(0, Math.round((1 - info.bytes / info.originalBytes) * 100)) : 0;
-
-  return (
-    <div>
-      <label className="mb-1 block text-xs font-semibold text-[var(--color-ink-soft)]">Foto produk (opsional)</label>
-      <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDrag(true);
-        }}
-        onDragLeave={() => setDrag(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDrag(false);
-          handle(e.dataTransfer.files?.[0]);
-        }}
-        className={`flex items-center gap-4 rounded-2xl border-2 border-dashed p-3 transition-colors ${
-          drag ? 'border-[var(--color-pine)] bg-[var(--color-pine-tint)]' : 'border-[var(--color-border-strong)] bg-[var(--color-canvas)]'
-        }`}
-      >
-        <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm">
-          {value ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={value} alt="Pratinjau" className="h-full w-full object-cover" />
-          ) : (
-            <ImagePlus className="h-8 w-8 text-[var(--color-ink-soft)]/50" />
-          )}
-        </div>
-
-        <div className="min-w-0 flex-1 space-y-2">
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => handle(e.target.files?.[0])} />
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => fileRef.current?.click()}
-              className="rounded-lg bg-[var(--color-pine)] px-3 py-1.5 text-xs font-bold text-white hover:bg-[var(--color-pine-light)] disabled:opacity-50"
-            >
-              {busy ? 'Memproses…' : value ? 'Ganti gambar' : 'Pilih / ambil foto'}
-            </button>
-            {value && (
-              <button
-                type="button"
-                onClick={onRemove}
-                className="flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-rust)] hover:bg-[var(--color-rust-tint)]"
-              >
-                <Trash2 className="h-3 w-3" /> Hapus
-              </button>
-            )}
-          </div>
-          <p className="text-[11px] leading-snug text-[var(--color-ink-soft)]">
-            {info ? (
-              <>
-                {info.isWebp ? 'WebP' : 'Gambar'} · {kb(info.originalBytes)} → <strong className="text-[var(--color-pine)]">{kb(info.bytes)}</strong>
-                {saving > 0 && ` (hemat ${saving}%)`}
-              </>
-            ) : (
-              'Seret gambar ke sini atau pilih file. Otomatis dipotong persegi & dikompres ke WebP.'
-            )}
-          </p>
-          {err && <p className="text-[11px] font-semibold text-[var(--color-rust)]">{err}</p>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------- modal: tambah / edit barang ---------- */
-
-/* ---------- format angka rupiah untuk input ---------- */
-
-const formatRupiahInput = (value: string | number) => {
-  const digits = String(value).replace(/\D/g, '');
-  if (!digits) return '';
-  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-};
-
-const parseRupiahInput = (value: string) => {
-  const digits = value.replace(/\D/g, '');
-  return digits ? Number(digits) : 0;
-};
-
-/* ---------- modal: tambah / edit barang ---------- */
-
-function ProductModal({ product, categories, onClose, onDone }: { product?: Product; categories: string[]; onClose: () => void; onDone: (m: string) => void }) {
-  const addProduct = useErpStore((s) => s.addProduct);
-  const updateProduct = useErpStore((s) => s.updateProduct);
-  const images = useProductImages();
-  const isEdit = !!product;
-
-  const [sku, setSku] = useState(product?.sku ?? '');
-  const [name, setName] = useState(product?.name ?? '');
-  const [category, setCategory] = useState(product?.category ?? '');
-  const [unit, setUnit] = useState(product?.unit ?? 'Pcs');
-  const [priceInput, setPriceInput] = useState(formatRupiahInput(product?.price ?? ''));
-  const [costInput, setCostInput] = useState(formatRupiahInput(product?.cost ?? ''));
-  // String dipakai agar kolom batas stok benar-benar bisa kosong.
-  const [minStockInput, setMinStockInput] = useState(product ? String(product.minStock) : '');
-  const [initialQtyInput, setInitialQtyInput] = useState('');
-  const [expiredDate, setExpiredDate] = useState('');
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [error, setError] = useState('');
-  const fieldRefs = useRef<Array<HTMLInputElement | null>>([]);
-
-  const price = parseRupiahInput(priceInput);
-  const cost = parseRupiahInput(costInput);
-  const minStock = minStockInput === '' ? 0 : Number(minStockInput);
-  const initialQty = initialQtyInput === '' ? 0 : Number(initialQtyInput);
-
-  // Gambar: awalnya gambar yang sudah tersimpan (mode edit).
-  const [image, setImage] = useState<string | null>(product ? getProductImage(images, product.sku) ?? null : null);
-  const [imageInfo, setImageInfo] = useState<CompressResult | null>(null);
-  const [imageChanged, setImageChanged] = useState(false);
-
-  const clearFieldError = (key: string) => {
-    setFieldErrors((current) => {
-      if (!current[key]) return current;
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
-    setError('');
-  };
-
-  // Enter memindahkan fokus ke input berikutnya, bukan mengirim form secara tidak sengaja.
-  const handleEnter = (index: number, event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Enter') return;
-    event.preventDefault();
-    const next = fieldRefs.current[index + 1];
-    if (next) {
-      next.focus();
-      next.select?.();
-    } else {
-      submit();
-    }
-  };
-
-  const inputClass = (key: string) =>
-    `${inputCls} ${fieldErrors[key] ? '!border-[var(--color-rust)] !ring-1 !ring-[var(--color-rust)]/30 focus:!border-[var(--color-rust)]' : ''}`;
-
-  const fieldMessage = (key: string) =>
-    fieldErrors[key] ? (
-      <p id={`${key}-error`} className="mt-1 text-[11px] font-semibold text-[var(--color-rust)]" role="alert">
-        {fieldErrors[key]}
-      </p>
-    ) : null;
-
-  const submit = () => {
-    setError('');
-    const nextErrors: Record<string, string> = {};
-
-    if (!isEdit && !sku.trim()) nextErrors.sku = 'SKU wajib diisi.';
-    if (!name.trim()) nextErrors.name = 'Nama barang wajib diisi.';
-    if (!category.trim()) nextErrors.category = 'Kategori wajib diisi.';
-    if (!unit.trim()) nextErrors.unit = 'Satuan wajib diisi.';
-    if (!costInput.trim()) nextErrors.cost = 'Harga beli wajib diisi.';
-    else if (!Number.isSafeInteger(cost) || cost <= 0) nextErrors.cost = 'Masukkan harga beli berupa angka lebih dari 0.';
-    if (!priceInput.trim()) nextErrors.price = 'Harga jual wajib diisi.';
-    else if (!Number.isSafeInteger(price) || price <= 0) nextErrors.price = 'Masukkan harga jual berupa angka lebih dari 0.';
-    else if (Number.isSafeInteger(cost) && cost > 0 && price < cost) nextErrors.price = 'Harga jual tidak boleh lebih rendah dari harga beli.';
-    if (minStockInput.trim() === '') nextErrors.minStock = 'Batas stok menipis wajib diisi.';
-    else if (!Number.isInteger(minStock) || minStock < 0) nextErrors.minStock = 'Isi bilangan bulat minimal 0.';
-
-    if (initialQtyInput !== '' && (!Number.isInteger(initialQty) || initialQty < 0)) {
-      nextErrors.initialQty = 'Stok awal harus bilangan bulat minimal 0.';
-    }
-
-    if (Object.keys(nextErrors).length > 0) {
-      setFieldErrors(nextErrors);
-      // Fokus otomatis ke kolom wajib pertama yang bermasalah.
-      const order = isEdit
-        ? ['name', 'category', 'unit', 'cost', 'price', 'minStock', 'initialQty']
-        : ['sku', 'name', 'category', 'unit', 'cost', 'price', 'minStock', 'initialQty'];
-      const firstInvalid = order.find((key) => nextErrors[key]);
-      const indexByKey: Record<string, number> = {
-        sku: 0, name: isEdit ? 0 : 1, category: isEdit ? 1 : 2, unit: isEdit ? 2 : 3,
-        cost: isEdit ? 3 : 4, price: isEdit ? 4 : 5, minStock: isEdit ? 5 : 6,
-        initialQty: isEdit ? -1 : 7,
-      };
-      const focusIndex = firstInvalid ? indexByKey[firstInvalid] : -1;
-      if (focusIndex >= 0) window.setTimeout(() => fieldRefs.current[focusIndex]?.focus(), 0);
-      return;
-    }
-
-    const cleanSku = sku.trim().toUpperCase();
-    const cleanName = name.trim();
-    const cleanCategory = category.trim();
-    const cleanUnit = unit.trim();
-
-    const res = isEdit
-      ? updateProduct(product!.id, { name: cleanName, category: cleanCategory, unit: cleanUnit, price, cost, minStock })
-      : addProduct({ sku: cleanSku, name: cleanName, category: cleanCategory, unit: cleanUnit, price, cost, minStock, initialQty, expiredDate });
-
-    if (!res.ok) {
-      // Error dari store (misalnya SKU sudah digunakan) tetap ditampilkan, dan SKU difokuskan bila relevan.
-      setError(res.error);
-      if (!isEdit && /sku|kode barang/i.test(res.error)) window.setTimeout(() => fieldRefs.current[0]?.focus(), 0);
-      return;
-    }
-
-    let message = res.message;
-    if (imageChanged) {
-      const saved = setProductImage(isEdit ? product!.sku : cleanSku, image);
-      if (!saved) message += ' (Gambar gagal disimpan: penyimpanan browser penuh.)';
-    }
-    onDone(message);
-  };
-
-  return (
-    <ModalShell title={isEdit ? 'Edit barang' : 'Tambah barang baru'} subtitle={isEdit ? product!.sku : 'Daftarkan barang, stok awal boleh dikosongkan'} onClose={onClose}>
-      <div className="space-y-3">
-        <ImagePicker
-          value={image}
-          info={imageInfo}
-          onPick={(r) => { setImage(r.dataUrl); setImageInfo(r); setImageChanged(true); }}
-          onRemove={() => { setImage(null); setImageInfo(null); setImageChanged(true); }}
-        />
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {!isEdit && (
-            <div className="sm:col-span-1">
-              <Field label="SKU *">
-                <input ref={(el) => { fieldRefs.current[0] = el; }} className={inputClass('sku') + ' font-mono uppercase'} value={sku} maxLength={40} aria-invalid={!!fieldErrors.sku} aria-describedby={fieldErrors.sku ? 'sku-error' : undefined} onKeyDown={(e) => handleEnter(0, e)} onChange={(e) => { setSku(e.target.value.toUpperCase()); clearFieldError('sku'); }} placeholder="BRS-002" />
-                {fieldMessage('sku')}
-              </Field>
-            </div>
-          )}
-          <div className={isEdit ? 'sm:col-span-3' : 'sm:col-span-2'}>
-            <Field label="Nama barang *">
-              <input ref={(el) => { fieldRefs.current[isEdit ? 0 : 1] = el; }} className={inputClass('name')} value={name} maxLength={120} aria-invalid={!!fieldErrors.name} aria-describedby={fieldErrors.name ? 'name-error' : undefined} onKeyDown={(e) => handleEnter(isEdit ? 0 : 1, e)} onChange={(e) => { setName(e.target.value); clearFieldError('name'); }} placeholder="Beras Pandan Wangi 5kg" />
-              {fieldMessage('name')}
-            </Field>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Kategori *">
-            <input ref={(el) => { fieldRefs.current[isEdit ? 1 : 2] = el; }} className={inputClass('category')} list="kategori-list" value={category} maxLength={60} aria-invalid={!!fieldErrors.category} aria-describedby={fieldErrors.category ? 'category-error' : undefined} onKeyDown={(e) => handleEnter(isEdit ? 1 : 2, e)} onChange={(e) => { setCategory(e.target.value); clearFieldError('category'); }} placeholder="Beras & Biji" />
-            {fieldMessage('category')}
-            <datalist id="kategori-list">{categories.map((c) => <option key={c} value={c} />)}</datalist>
-          </Field>
-          <Field label="Satuan *">
-            <input ref={(el) => { fieldRefs.current[isEdit ? 2 : 3] = el; }} className={inputClass('unit')} value={unit} maxLength={20} aria-invalid={!!fieldErrors.unit} aria-describedby={fieldErrors.unit ? 'unit-error' : undefined} onKeyDown={(e) => handleEnter(isEdit ? 2 : 3, e)} onChange={(e) => { setUnit(e.target.value); clearFieldError('unit'); }} placeholder="Pcs / Kg / Dus" />
-            {fieldMessage('unit')}
-          </Field>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Harga beli / modal (Rp) *" hint="Contoh: 15.000">
-            <input ref={(el) => { fieldRefs.current[isEdit ? 3 : 4] = el; }} type="text" inputMode="numeric" autoComplete="off" className={inputClass('cost')} value={costInput} maxLength={18} aria-invalid={!!fieldErrors.cost} aria-describedby={fieldErrors.cost ? 'cost-error' : undefined} onKeyDown={(e) => handleEnter(isEdit ? 3 : 4, e)} onChange={(e) => { setCostInput(formatRupiahInput(e.target.value)); clearFieldError('cost'); }} placeholder="0" />
-            {fieldMessage('cost')}
-          </Field>
-          <Field label="Harga jual (Rp) *" hint="Contoh: 18.000">
-            <input ref={(el) => { fieldRefs.current[isEdit ? 4 : 5] = el; }} type="text" inputMode="numeric" autoComplete="off" className={inputClass('price')} value={priceInput} maxLength={18} aria-invalid={!!fieldErrors.price} aria-describedby={fieldErrors.price ? 'price-error' : undefined} onKeyDown={(e) => handleEnter(isEdit ? 4 : 5, e)} onChange={(e) => { setPriceInput(formatRupiahInput(e.target.value)); clearFieldError('price'); }} placeholder="0" />
-            {fieldMessage('price')}
-          </Field>
-          <Field label="Batas stok menipis *" hint="Isi sendiri, misalnya 5 atau 10">
-            <input ref={(el) => { fieldRefs.current[isEdit ? 5 : 6] = el; }} type="number" inputMode="numeric" min="0" step="1" className={inputClass('minStock')} value={minStockInput} aria-invalid={!!fieldErrors.minStock} aria-describedby={fieldErrors.minStock ? 'minStock-error' : undefined} onKeyDown={(e) => handleEnter(isEdit ? 5 : 6, e)} onChange={(e) => { setMinStockInput(e.target.value); clearFieldError('minStock'); }} placeholder="Masukkan batas stok" />
-            {fieldMessage('minStock')}
-          </Field>
-        </div>
-
-        {!isEdit && (
-          <div className="grid grid-cols-1 gap-3 rounded-xl bg-[var(--color-canvas-sunk)] p-3 sm:grid-cols-2">
-            <Field label="Stok awal" hint="Opsional; jika kosong dianggap 0">
-              <input ref={(el) => { fieldRefs.current[7] = el; }} type="number" inputMode="numeric" min="0" step="1" className={inputClass('initialQty')} value={initialQtyInput} aria-invalid={!!fieldErrors.initialQty} aria-describedby={fieldErrors.initialQty ? 'initialQty-error' : undefined} onKeyDown={(e) => handleEnter(7, e)} onChange={(e) => { setInitialQtyInput(e.target.value); clearFieldError('initialQty'); }} placeholder="Kosongkan jika belum ada stok" />
-              {fieldMessage('initialQty')}
-            </Field>
-            <Field label="Kadaluarsa batch" hint="Opsional">
-              <input ref={(el) => { fieldRefs.current[8] = el; }} type="date" className={inputCls} value={expiredDate} onKeyDown={(e) => handleEnter(8, e)} onChange={(e) => setExpiredDate(e.target.value)} />
-            </Field>
-          </div>
-        )}
-
-        <p className="text-[10px] text-[var(--color-ink-soft)]">* Wajib diisi. Foto produk, stok awal, dan tanggal kedaluwarsa bersifat opsional.</p>
-        <ErrorBox text={error} />
-      </div>
-      <FormActions onClose={onClose} submitLabel={isEdit ? 'Simpan perubahan' : 'Simpan barang'} onSubmit={submit} />
-    </ModalShell>
   );
 }
 
@@ -609,7 +274,6 @@ function DetailPanel({
       })
       .sort((a, b) => a.expiredDate.localeCompare(b.expiredDate));
 
-  // Ringkasan
   const lowNeed = (p: Product) => Math.max(p.minStock * 3 - getTotalStock(p), 0);
   const restockCost = items.reduce((s, p) => s + lowNeed(p) * p.cost, 0);
   const outCount = items.filter((p) => getTotalStock(p) <= 0).length;
@@ -833,6 +497,7 @@ export default function InventoryPage() {
   const hydrated = useHydrated();
   const products = useErpStore((s) => s.products);
   const images = useProductImages();
+  const barcodes = useProductBarcodes();
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -845,6 +510,15 @@ export default function InventoryPage() {
   const [detail, setDetail] = useState<'low' | 'risk' | null>(null);
 
   const categories = useMemo(() => Array.from(new Set(products.map((p) => p.category))), [products]);
+
+  // SKU -> barcode, untuk pencarian dan tampilan.
+  const skuToCode = useMemo(() => {
+    const m: Record<string, string> = {};
+    products.forEach((p) => {
+      m[p.sku] = getBarcodeOf(barcodes, p.sku);
+    });
+    return m;
+  }, [products, barcodes]);
 
   const isLow = (p: Product) => getTotalStock(p) <= p.minStock;
   const isRisk = (p: Product) =>
@@ -871,7 +545,11 @@ export default function InventoryPage() {
     const nearest = (p: Product) => p.batches.reduce((m, b) => (b.expiredDate < m ? b.expiredDate : m), '9999-12-31');
     return products
       .filter((p) => {
-        const match = p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.category.toLowerCase().includes(q);
+        const match =
+          p.name.toLowerCase().includes(q) ||
+          p.sku.toLowerCase().includes(q) ||
+          p.category.toLowerCase().includes(q) ||
+          (skuToCode[p.sku] ?? '').toLowerCase().includes(q);
         const pass = filter === 'all' || (filter === 'low' && isLow(p)) || (filter === 'risk' && isRisk(p));
         const cat = category === 'Semua' || p.category === category;
         return match && pass && cat;
@@ -883,7 +561,7 @@ export default function InventoryPage() {
           ? nearest(a).localeCompare(nearest(b))
           : a.name.localeCompare(b.name)
       );
-  }, [products, search, filter, category, sort]);
+  }, [products, search, filter, category, sort, skuToCode]);
 
   const done = (message: string) => {
     setModal(null);
@@ -910,12 +588,20 @@ export default function InventoryPage() {
           <h1 className="font-display text-xl font-semibold sm:text-2xl">Stok & Kontrol FEFO</h1>
           <p className="mt-0.5 text-xs text-[var(--color-ink-soft)]">Kelola barang, batch kadaluarsa, dan stock opname</p>
         </div>
-        <button
-          onClick={() => setModal({ type: 'product' })}
-          className="flex items-center justify-center gap-2 rounded-xl bg-[var(--color-pine)] px-4 py-2.5 text-xs font-bold text-white shadow-md transition-all hover:bg-[var(--color-pine-light)] active:scale-[0.98]"
-        >
-          <Plus className="h-4 w-4" /> Tambah barang
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setModal({ type: 'product', autoScan: true })}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[var(--color-pine)] bg-[var(--color-surface)] px-4 py-2.5 text-xs font-bold text-[var(--color-pine)] transition-all hover:bg-[var(--color-pine-tint)] active:scale-[0.98] sm:flex-none"
+          >
+            <ScanLine className="h-4 w-4" /> Scan barang
+          </button>
+          <button
+            onClick={() => setModal({ type: 'product' })}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--color-pine)] px-4 py-2.5 text-xs font-bold text-white shadow-md transition-all hover:bg-[var(--color-pine-light)] active:scale-[0.98] sm:flex-none"
+          >
+            <Plus className="h-4 w-4" /> Tambah barang
+          </button>
+        </div>
       </div>
 
       {/* Ringkasan */}
@@ -968,7 +654,7 @@ export default function InventoryPage() {
             <Search className="pointer-events-none absolute left-3.5 top-2.5 h-4 w-4 text-[var(--color-ink-soft)]" />
             <input
               type="text"
-              placeholder="Cari SKU, nama barang, kategori"
+              placeholder="Cari SKU, barcode, nama barang, kategori"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-canvas)] py-2 pl-10 pr-4 text-xs focus:border-[var(--color-gold)] focus:outline-none"
@@ -1080,6 +766,11 @@ export default function InventoryPage() {
                           <p className="font-mono text-[10px] text-[var(--color-ink-soft)]">
                             {p.sku} · {rp(p.price)}/{p.unit}
                           </p>
+                          {skuToCode[p.sku] && (
+                            <p className="mt-0.5 flex items-center gap-1 font-mono text-[10px] text-[var(--color-ink-soft)]">
+                              <ScanLine className="h-3 w-3" /> {skuToCode[p.sku]}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -1116,7 +807,10 @@ export default function InventoryPage() {
                 <Thumb p={p} src={getProductImage(images, p.sku)} size={64} onZoom={zoomIn} />
                 <div className="min-w-0 flex-1">
                   <p className="line-clamp-2 text-sm font-semibold leading-snug">{p.name}</p>
-                  <p className="font-mono text-[10px] text-[var(--color-ink-soft)]">{p.sku}</p>
+                  <p className="font-mono text-[10px] text-[var(--color-ink-soft)]">
+                    {p.sku}
+                    {skuToCode[p.sku] ? ` · ${skuToCode[p.sku]}` : ''}
+                  </p>
                   <div className="mt-1.5 flex flex-wrap items-center gap-2">
                     <span className="rounded-md bg-[var(--color-canvas-sunk)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-ink-soft)]">{p.category}</span>
                     <span className="font-display text-sm font-semibold text-[var(--color-pine)]">
@@ -1144,7 +838,14 @@ export default function InventoryPage() {
       {/* Modal */}
       <AnimatePresence>
         {modal?.type === 'product' && (
-          <ProductModal key={modal.product?.id ?? 'new'} product={modal.product} categories={categories} onClose={() => setModal(null)} onDone={done} />
+          <ProductModal
+            key={modal.product?.id ?? (modal.autoScan ? 'scan' : 'new')}
+            product={modal.product}
+            autoScan={modal.autoScan}
+            categories={categories}
+            onClose={() => setModal(null)}
+            onDone={done}
+          />
         )}
         {modal?.type === 'batch' && <BatchModal key={modal.product.id} product={modal.product} onClose={() => setModal(null)} onDone={done} />}
         {modal?.type === 'opname' && <OpnameModal key={modal.product.id} product={modal.product} onClose={() => setModal(null)} onDone={done} />}
