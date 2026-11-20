@@ -183,7 +183,7 @@ function DashboardShell({
                 >
                   <div className="flex items-center gap-1.5">
                     <h1 className="font-display text-base font-semibold tracking-wide text-white">
-                      Toserba
+                      TOSERBA
                     </h1>
 
                     <Leaf className="h-3.5 w-3.5 text-[var(--color-gold-light)]" />

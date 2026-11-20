@@ -7,12 +7,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   AlertCircle,
   Banknote,
+  Camera,
   CheckCircle2,
   CreditCard,
   Minus,
   Package,
   Plus,
   Printer,
+  ScanLine,
   Search,
   ShoppingCart,
   Trash2,
@@ -29,6 +31,8 @@ import {
   toDateTimeStr,
   type Product,
 } from '@/stores/useErpStore';
+import { findSkuByBarcode, normalizeBarcode, useProductBarcodes } from '@/stores/useProductBarcodes';
+import BarcodeScanner from '@/components/BarcodeScanner';
 
 const rp = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
 
@@ -59,6 +63,27 @@ const EMOJI_RULES: [RegExp, string][] = [
   [/ayam|daging|ikan/, '🍗'],
 ];
 const emojiFor = (name: string) => EMOJI_RULES.find(([re]) => re.test(name.toLowerCase()))?.[1] ?? '📦';
+
+/** Bunyi beep singkat: nada tinggi = berhasil, nada rendah = gagal. */
+function beep(ok: boolean) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const AC = window.AudioContext || (window as any).webkitAudioContext;
+    const ctx = new AC();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = ok ? 1200 : 300;
+    gain.gain.value = 0.05;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + (ok ? 0.08 : 0.25));
+    window.setTimeout(() => ctx.close(), 500);
+  } catch {
+    /* audio tidak tersedia */
+  }
+}
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
@@ -263,9 +288,24 @@ export default function PosPage() {
   const products = useErpStore((s) => s.products);
   const sellItems = useErpStore((s) => s.sellItems);
   const { cart, addToCart, updateQty, clearCart } = usePosStore();
+  const barcodes = useProductBarcodes();
 
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('Semua');
+
+  // Scan barcode
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanMsg, setScanMsg] = useState<{ tone: 'ok' | 'error'; title: string; detail?: string; emoji?: string; key: number } | null>(null);
+  // Animasi umpan balik saat barang masuk keranjang
+  const [flashRow, setFlashRow] = useState<{ id: Product['id']; n: number } | null>(null);
+  const [bump, setBump] = useState(0);
+  const [edge, setEdge] = useState<{ tone: 'ok' | 'error'; key: number } | null>(null);
+  const [flyList, setFlyList] = useState<{ key: number; emoji: string; fromX: number; fromY: number; toX: number; toY: number }[]>([]);
+  const flashSeq = useRef(0);
+  const flashTimer = useRef<number | undefined>(undefined);
+  const cartIconRef = useRef<HTMLSpanElement>(null);
+  const scanMsgTimer = useRef<number | undefined>(undefined);
+  const scanBuf = useRef({ text: '', last: 0 });
 
   // Modal pembayaran
   const [payOpen, setPayOpen] = useState(false);
@@ -307,6 +347,7 @@ export default function PosPage() {
 
   const openPayment = () => {
     if (cart.length === 0) return;
+    setShowScanner(false);
     setError('');
     setReceived(0); // kasir mengetik sendiri nominal uang dari pembeli
     setMethod('CASH');
@@ -338,7 +379,7 @@ export default function PosPage() {
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const handleAdd = (p: Product) => {
+  const handleAdd = (p: Product, origin?: { x: number; y: number }) => {
     addToCart({
       id: p.id,
       sku: p.sku,
@@ -347,7 +388,108 @@ export default function PosPage() {
       price: p.price,
       stock: getSellableStock(p),
     });
+
+    // Umpan balik visual: sorot baris keranjang, goyang ikon keranjang, terbangkan emoji barang ke keranjang.
+    flashSeq.current += 1;
+    const n = flashSeq.current;
+    setFlashRow({ id: p.id, n });
+    setBump((b) => b + 1);
+    window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlashRow(null), 1400);
+
+    const target = cartIconRef.current?.getBoundingClientRect();
+    setFlyList((list) => [
+      ...list,
+      {
+        key: n,
+        emoji: emojiFor(p.name),
+        fromX: origin?.x ?? window.innerWidth / 2,
+        fromY: origin?.y ?? window.innerHeight - 70,
+        toX: target ? target.left + target.width / 2 : window.innerWidth - 120,
+        toY: target ? target.top + target.height / 2 : 90,
+      },
+    ]);
+    window.setTimeout(() => document.getElementById(`cart-row-${p.id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 60);
   };
+
+  /* ---------- scan barcode ---------- */
+
+  const findByCode = (raw: string) => {
+    const c = normalizeBarcode(raw);
+    if (!c) return undefined;
+    const mapped = findSkuByBarcode(barcodes, c);
+    // Cocok lewat peta barcode, atau barcode yang sama dengan SKU.
+    return products.find((p) => (mapped && p.sku === mapped) || p.sku.toUpperCase() === c.toUpperCase());
+  };
+
+  const flashScan = (tone: 'ok' | 'error', title: string, detail?: string, emoji?: string) => {
+    flashSeq.current += 1;
+    setScanMsg({ tone, title, detail, emoji, key: flashSeq.current });
+    setEdge({ tone, key: flashSeq.current });
+    if (tone === 'error') navigator.vibrate?.([80, 40, 80]);
+    window.clearTimeout(scanMsgTimer.current);
+    scanMsgTimer.current = window.setTimeout(() => {
+      setScanMsg(null);
+      setEdge(null);
+    }, 2400);
+  };
+
+  /** Dipanggil oleh scanner USB, kamera, maupun kolom pencarian. */
+  const handleScan = (raw: string) => {
+    const c = normalizeBarcode(raw);
+    if (!c) return;
+    if (payOpen) return; // jangan mengubah keranjang saat pembayaran berlangsung
+    if (receipt) setReceipt(null); // scan pertama setelah transaksi = transaksi baru
+
+    const p = findByCode(c);
+    if (!p) {
+      beep(false);
+      return flashScan('error', `Barcode ${c} belum terdaftar`);
+    }
+    const stock = getSellableStock(p);
+    const inCart = cart.find((i) => i.id === p.id)?.qty ?? 0;
+    if (stock <= 0) {
+      beep(false);
+      return flashScan('error', `${p.name}: stok habis`);
+    }
+    if (inCart >= stock) {
+      beep(false);
+      return flashScan('error', `${p.name}: stok hanya ${stock} ${p.unit}`);
+    }
+    handleAdd(p);
+    beep(true);
+    flashScan('ok', p.name, `${inCart + 1} ${p.unit} di keranjang · ${rp(p.price * (inCart + 1))}`, emojiFor(p.name));
+  };
+
+  // Scanner USB/Bluetooth bertindak seperti keyboard: mengetik sangat cepat lalu Enter.
+  // Dengan begini kasir tidak perlu mengklik kolom apa pun sebelum scan.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (payOpen) return;
+      const t = e.target as HTMLElement | null;
+      const typing = t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement;
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const now = Date.now();
+      const b = scanBuf.current;
+      if (now - b.last > 80) b.text = ''; // jeda lama = ketikan manusia, bukan scanner
+      b.last = now;
+
+      if (e.key === 'Enter') {
+        if (b.text.length >= 4) {
+          e.preventDefault();
+          e.stopPropagation(); // cegah Enter ikut menutup modal sukses
+          const code = b.text;
+          b.text = '';
+          handleScan(code);
+        }
+        return;
+      }
+      if (e.key.length === 1) b.text += e.key;
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  });
 
   const canConfirm = method === 'CASH' ? received >= total && total > 0 : customerName.trim().length > 0;
 
@@ -414,34 +556,54 @@ export default function PosPage() {
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="font-display text-2xl font-semibold">Kasir Toserba</h1>
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-[var(--color-ink-soft)]">
-              <Kbd>F2</Kbd> cari barang <span className="mx-1">·</span> <Kbd>F9</Kbd> bayar
+            <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-ink-soft)]">
+              <Kbd>F2</Kbd> cari barang <span className="mx-1">·</span> <Kbd>F9</Kbd> bayar <span className="mx-1">·</span>
+              <ScanLine className="h-3.5 w-3.5 text-[var(--color-pine)]" /> scanner siap
             </p>
           </div>
 
-          <div className="relative w-full sm:w-96">
-            <Search className="pointer-events-none absolute left-4 top-3.5 h-4 w-4 text-[var(--color-ink-soft)]" />
-            <input
-              ref={searchRef}
-              type="text"
-              placeholder="Cari nama barang atau SKU"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] py-3 pl-11 pr-14 text-sm shadow-sm placeholder-[var(--color-ink-soft)] transition-shadow focus:border-[var(--color-gold)] focus:shadow-md focus:outline-none"
-            />
-            {search ? (
-              <button
-                aria-label="Hapus pencarian"
-                onClick={() => setSearch('')}
-                className="absolute right-3 top-3 rounded-full p-1 text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas-sunk)]"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            ) : (
-              <span className="pointer-events-none absolute right-3.5 top-3.5">
-                <Kbd>F2</Kbd>
-              </span>
-            )}
+          <div className="flex w-full items-center gap-2 sm:w-[28rem]">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-4 top-3.5 h-4 w-4 text-[var(--color-ink-soft)]" />
+              <input
+                ref={searchRef}
+                type="text"
+                placeholder="Cari nama / SKU, atau scan barcode"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter') return;
+                  const c = normalizeBarcode(search);
+                  // Enter di kolom cari: kalau persis cocok barcode/SKU, langsung masuk keranjang.
+                  if (findByCode(c) || /^\d{6,}$/.test(c)) {
+                    e.preventDefault();
+                    handleScan(c);
+                    setSearch('');
+                  }
+                }}
+                className="w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] py-3 pl-11 pr-14 text-sm shadow-sm placeholder-[var(--color-ink-soft)] transition-shadow focus:border-[var(--color-gold)] focus:shadow-md focus:outline-none"
+              />
+              {search ? (
+                <button
+                  aria-label="Hapus pencarian"
+                  onClick={() => setSearch('')}
+                  className="absolute right-3 top-3 rounded-full p-1 text-[var(--color-ink-soft)] hover:bg-[var(--color-canvas-sunk)]"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : (
+                <span className="pointer-events-none absolute right-3.5 top-3.5">
+                  <Kbd>F2</Kbd>
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => setShowScanner(true)}
+              title="Scan barcode dengan kamera"
+              className="flex shrink-0 items-center gap-2 rounded-2xl bg-[var(--color-pine)] px-4 py-3 text-xs font-bold text-white shadow-sm transition-all hover:bg-[var(--color-pine-light)] active:scale-[0.98]"
+            >
+              <Camera className="h-4 w-4" /> Scan
+            </button>
           </div>
         </header>
 
@@ -497,13 +659,23 @@ export default function PosPage() {
                 key={p.id}
                 disabled={soldOut || inCart >= stock}
                 onClick={(e) => {
-                  handleAdd(p);
+                  const r = e.currentTarget.getBoundingClientRect();
+                  handleAdd(p, { x: r.left + r.width / 2, y: r.top + 48 });
                   e.currentTarget.blur(); // supaya Enter tidak menekan tombol ini lagi
                 }}
                 className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-[var(--color-surface)] text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-sm ${
                   inCart > 0 ? 'border-[var(--color-pine)] ring-1 ring-[var(--color-pine)]/30' : 'border-[var(--color-border)]'
                 }`}
               >
+                {flashRow?.id === p.id && (
+                  <motion.span
+                    key={flashRow.n}
+                    initial={{ opacity: 1 }}
+                    animate={{ opacity: 0 }}
+                    transition={{ duration: 1.1 }}
+                    className="pointer-events-none absolute inset-0 z-10 rounded-2xl bg-[var(--color-pine)]/20 ring-2 ring-inset ring-[var(--color-pine)]"
+                  />
+                )}
                 {/* Ubin ikon produk */}
                 <div className="relative flex h-24 items-center justify-center" style={{ background: tint }}>
                   <span className="text-5xl drop-shadow-sm transition-transform duration-200 group-hover:scale-110">
@@ -572,12 +744,25 @@ export default function PosPage() {
       <aside className="flex w-[22rem] shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)] p-5">
         <div className="flex items-center justify-between pb-4">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--color-pine-tint)] text-[var(--color-pine)]">
+            <motion.span
+              ref={cartIconRef}
+              key={bump}
+              animate={bump ? { rotate: [0, -16, 12, -8, 0], scale: [1, 1.25, 1] } : undefined}
+              transition={{ duration: 0.5 }}
+              className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--color-pine-tint)] text-[var(--color-pine)]"
+            >
               <ShoppingCart className="h-[18px] w-[18px]" />
-            </span>
+            </motion.span>
             <div>
               <h2 className="font-display text-lg font-semibold leading-tight">Keranjang</h2>
-              <p className="text-[11px] text-[var(--color-ink-soft)]">{totalQty} item</p>
+              <motion.p
+                key={totalQty}
+                initial={{ scale: 1.5 }}
+                animate={{ scale: 1 }}
+                className="origin-left text-[11px] font-semibold text-[var(--color-pine)]"
+              >
+                {totalQty} item
+              </motion.p>
             </div>
           </div>
           {cart.length > 0 && (
@@ -595,7 +780,7 @@ export default function PosPage() {
             <div className="flex h-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[var(--color-border-strong)] px-6 text-center">
               <span className="text-4xl">🛒</span>
               <p className="text-sm font-semibold">Keranjang masih kosong</p>
-              <p className="text-xs text-[var(--color-ink-soft)]">Klik barang di sebelah kiri untuk menambahkan.</p>
+              <p className="text-xs text-[var(--color-ink-soft)]">Scan barcode atau klik barang di sebelah kiri untuk menambahkan.</p>
             </div>
           ) : (
             <AnimatePresence initial={false}>
@@ -607,8 +792,29 @@ export default function PosPage() {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 24 }}
                   transition={{ duration: 0.18 }}
-                  className="flex items-center gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-canvas)] p-3"
+                  id={`cart-row-${item.id}`}
+                  className="relative flex items-center gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-canvas)] p-3"
                 >
+                  {flashRow?.id === item.id && (
+                    <>
+                      <motion.span
+                        key={`glow-${flashRow.n}`}
+                        initial={{ opacity: 1 }}
+                        animate={{ opacity: 0 }}
+                        transition={{ duration: 1.2 }}
+                        className="pointer-events-none absolute inset-0 rounded-2xl bg-[var(--color-pine)]/25 ring-2 ring-[var(--color-pine)]"
+                      />
+                      <motion.span
+                        key={`plus-${flashRow.n}`}
+                        initial={{ opacity: 1, y: 0, scale: 1 }}
+                        animate={{ opacity: 0, y: -22, scale: 1.3 }}
+                        transition={{ duration: 0.9 }}
+                        className="pointer-events-none absolute -top-2 right-3 z-10 rounded-full bg-[var(--color-pine)] px-2 py-0.5 text-[11px] font-bold text-white shadow"
+                      >
+                        +1
+                      </motion.span>
+                    </>
+                  )}
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-2xl shadow-sm">
                     {emojiFor(item.name)}
                   </span>
@@ -630,7 +836,15 @@ export default function PosPage() {
                     >
                       <Minus className="h-3 w-3" />
                     </button>
-                    <span className="w-5 text-center text-xs font-bold">{item.qty}</span>
+                    <motion.span
+                      key={item.qty}
+                      initial={{ scale: 1.8 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 18 }}
+                      className="inline-block w-5 text-center text-xs font-bold text-[var(--color-pine)]"
+                    >
+                      {item.qty}
+                    </motion.span>
                     <button
                       aria-label="Tambah"
                       disabled={item.qty >= item.stock}
@@ -919,6 +1133,89 @@ export default function PosPage() {
                 </div>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ============ SCANNER KAMERA (mode beruntun) ============ */}
+      {showScanner && <BarcodeScanner continuous onDetected={handleScan} onClose={() => setShowScanner(false)} />}
+
+      {/* ============ KILATAN TEPI LAYAR (hijau = berhasil, merah = gagal) ============ */}
+      <AnimatePresence>
+        {edge && (
+          <motion.div
+            key={edge.key}
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.8, ease: 'easeOut' }}
+            className={`pointer-events-none fixed inset-0 z-[85] ${
+              edge.tone === 'ok'
+                ? 'shadow-[inset_0_0_90px_14px_rgba(11,77,58,0.55)]'
+                : 'shadow-[inset_0_0_90px_14px_rgba(162,59,50,0.6)]'
+            }`}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ============ EMOJI BARANG TERBANG KE KERANJANG ============ */}
+      {flyList.map((f) => (
+        <motion.span
+          key={f.key}
+          initial={{ x: f.fromX - 18, y: f.fromY - 18, scale: 1.8, opacity: 1 }}
+          animate={{ x: f.toX - 18, y: f.toY - 18, scale: 0.6, opacity: [1, 1, 0.2] }}
+          transition={{ duration: 0.75, ease: [0.4, 0, 0.2, 1] }}
+          onAnimationComplete={() => setFlyList((list) => list.filter((x) => x.key !== f.key))}
+          className="pointer-events-none fixed left-0 top-0 z-[95] text-4xl drop-shadow-lg"
+        >
+          {f.emoji}
+        </motion.span>
+      ))}
+
+      {/* ============ NOTIFIKASI SCAN ============ */}
+      <AnimatePresence>
+        {scanMsg && (
+          <motion.div
+            key={scanMsg.key}
+            initial={{ opacity: 0, y: 30, scale: 0.9 }}
+            animate={
+              scanMsg.tone === 'ok'
+                ? { opacity: 1, y: 0, scale: 1 }
+                : { opacity: 1, y: 0, scale: 1, x: [0, -10, 10, -8, 8, -4, 0] }
+            }
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            transition={{ type: 'spring', stiffness: 380, damping: 24 }}
+            role="status"
+            className={`pointer-events-none fixed inset-x-0 bottom-6 z-[90] mx-auto flex w-[min(92vw,26rem)] items-center gap-3 rounded-2xl px-4 py-3 text-white shadow-2xl ring-4 ${
+              scanMsg.tone === 'ok' ? 'bg-[var(--color-pine)] ring-[var(--color-pine)]/25' : 'bg-[var(--color-rust)] ring-[var(--color-rust)]/25'
+            }`}
+          >
+            <motion.span
+              initial={{ scale: 0, rotate: -40 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 14 }}
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/20 text-3xl"
+            >
+              {scanMsg.emoji ?? (scanMsg.tone === 'ok' ? '✅' : '⚠️')}
+            </motion.span>
+            <div className="min-w-0 flex-1">
+              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-white/80">
+                {scanMsg.tone === 'ok' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
+                {scanMsg.tone === 'ok' ? 'Masuk keranjang' : 'Gagal ditambahkan'}
+              </p>
+              <p className="truncate text-sm font-bold">{scanMsg.title}</p>
+              {scanMsg.detail && <p className="text-[11px] text-white/80">{scanMsg.detail}</p>}
+            </div>
+            {scanMsg.tone === 'ok' && (
+              <motion.span
+                initial={{ scale: 0.4, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 16, delay: 0.1 }}
+                className="rounded-full bg-white px-2.5 py-1 text-sm font-extrabold text-[var(--color-pine)]"
+              >
+                +1
+              </motion.span>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

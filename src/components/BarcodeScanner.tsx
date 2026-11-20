@@ -14,9 +14,22 @@ import { CameraOff, Keyboard, X } from 'lucide-react';
 
 const FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'qr_code'];
 
-export default function BarcodeScanner({ onDetected, onClose }: { onDetected: (code: string) => void; onClose: () => void }) {
+export default function BarcodeScanner({
+  onDetected,
+  onClose,
+  continuous = false,
+}: {
+  onDetected: (code: string) => void;
+  onClose: () => void;
+  /** true = kamera tetap terbuka setelah scan (cocok untuk kasir). Barcode yang sama diabaikan 1,8 detik. */
+  continuous?: boolean;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const doneRef = useRef(false);
+  const lastRef = useRef({ code: '', at: 0 });
+  // Selalu memakai callback terbaru agar tidak membaca state lama (mis. isi keranjang).
+  const onDetectedRef = useRef(onDetected);
+  onDetectedRef.current = onDetected;
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
   const [manual, setManual] = useState('');
@@ -28,10 +41,17 @@ export default function BarcodeScanner({ onDetected, onClose }: { onDetected: (c
     let controls: { stop: () => void } | undefined;
 
     const finish = (code: string) => {
-      if (doneRef.current || !code) return;
-      doneRef.current = true;
+      if (!code) return;
+      if (continuous) {
+        const now = Date.now();
+        if (code === lastRef.current.code && now - lastRef.current.at < 1800) return;
+        lastRef.current = { code, at: now };
+      } else {
+        if (doneRef.current) return;
+        doneRef.current = true;
+      }
       navigator.vibrate?.(60);
-      onDetected(code);
+      onDetectedRef.current(code);
     };
 
     (async () => {
@@ -124,11 +144,18 @@ export default function BarcodeScanner({ onDetected, onClose }: { onDetected: (c
         </div>
 
         <div className="space-y-2 p-4">
-          <p className="text-xs text-[var(--color-ink-soft)]">Arahkan barcode ke dalam kotak. Akan terbaca otomatis.</p>
+          <p className="text-xs text-[var(--color-ink-soft)]">
+            {continuous
+              ? 'Mode beruntun: setiap barcode yang terbaca langsung diproses. Tekan X atau Esc bila selesai.'
+              : 'Arahkan barcode ke dalam kotak. Akan terbaca otomatis.'}
+          </p>
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (manual.trim()) onDetected(manual.trim());
+              if (manual.trim()) {
+                onDetectedRef.current(manual.trim());
+                if (continuous) setManual('');
+              }
             }}
             className="flex gap-2"
           >
