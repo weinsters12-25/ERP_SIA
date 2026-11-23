@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Calendar, Camera, ImagePlus, PackagePlus, ScanLine, Trash2 } from 'lucide-react';
 import {
   useErpStore,
@@ -26,6 +26,28 @@ import {
   useProductBarcodes,
 } from '@/stores/useProductBarcodes';
 import BarcodeScanner from '@/components/BarcodeScanner';
+import CreatableSelect, { useCustomOptions } from '@/components/CreatableSelect';
+
+/* ---------- pilihan bawaan untuk dropdown ---------- */
+
+const DEFAULT_CATEGORIES = [
+  'Beras & Biji',
+  'Minyak & Gula',
+  'Mie & Pasta',
+  'Bumbu Dapur',
+  'Minuman',
+  'Snack',
+  'Susu',
+  'Telur',
+  'Sabun & Kebersihan',
+  'Rokok',
+  'Gas & Lainnya',
+];
+
+const DEFAULT_UNITS = [
+  'Pcs', 'Kg', 'Gram', 'Liter', 'Pak', 'Dus', 'Karung', 'Botol',
+  'Bungkus', 'Sachet', 'Renteng', 'Lusin', 'Butir', 'Ikat', 'Kaleng', 'Tabung',
+];
 
 /* ---------- pembantu yang juga dipakai halaman ---------- */
 
@@ -163,6 +185,7 @@ function ImagePicker({
 /* ---------- modal: tambah / edit barang (dengan scan barcode) ---------- */
 
 type Notice = { tone: 'ok' | 'info' | 'error'; text: string };
+type FocusEl = HTMLInputElement | HTMLButtonElement | null;
 
 const noticeStyle: Record<Notice['tone'], string> = {
   ok: 'bg-[var(--color-pine-tint)] text-[var(--color-pine)]',
@@ -202,7 +225,13 @@ export function ProductModal({
   const [expiredDate, setExpiredDate] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
-  const fieldRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const fieldRefs = useRef<Array<FocusEl>>([]);
+
+  // --- pilihan dropdown kategori & satuan ---
+  const catOpts = useCustomOptions('erp:custom-categories');
+  const unitOpts = useCustomOptions('erp:custom-units');
+  const categoryOptions = useMemo(() => [...DEFAULT_CATEGORIES, ...categories], [categories]);
+  const unitOptions = useMemo(() => [...DEFAULT_UNITS, ...products.map((p) => p.unit)], [products]);
 
   // --- barcode & mode restock ---
   const [code, setCode] = useState(product ? getBarcodeOf(barcodes, product.sku) : '');
@@ -243,16 +272,18 @@ export function ProductModal({
     setError('');
   };
 
-  const handleEnter = (index: number, event: KeyboardEvent<HTMLInputElement>) => {
+  const focusField = (index: number) => {
+    const el = fieldRefs.current[index];
+    if (!el) return;
+    el.focus();
+    if (el instanceof HTMLInputElement) el.select?.();
+  };
+
+  const handleEnter = (index: number, event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
-    const next = fieldRefs.current[index + 1];
-    if (next) {
-      next.focus();
-      next.select?.();
-    } else {
-      submit();
-    }
+    if (fieldRefs.current[index + 1]) focusField(index + 1);
+    else submit();
   };
 
   const inputClass = (key: string) =>
@@ -306,7 +337,7 @@ export function ProductModal({
     setFoundId(null);
     if (!sku.trim()) setSku(c.toUpperCase()); // barcode jadi SKU awal, tetap bisa diubah
     setNotice({ tone: 'info', text: 'Barcode belum terdaftar. Lengkapi data barang baru di bawah.' });
-    window.setTimeout(() => fieldRefs.current[1]?.focus(), 80);
+    window.setTimeout(() => focusField(1), 80);
   };
 
   const submitRestock = () => {
@@ -343,8 +374,8 @@ export function ProductModal({
 
     if (!isEdit && !sku.trim()) nextErrors.sku = 'SKU wajib diisi.';
     if (!name.trim()) nextErrors.name = 'Nama barang wajib diisi.';
-    if (!category.trim()) nextErrors.category = 'Kategori wajib diisi.';
-    if (!unit.trim()) nextErrors.unit = 'Satuan wajib diisi.';
+    if (!category.trim()) nextErrors.category = 'Kategori wajib dipilih.';
+    if (!unit.trim()) nextErrors.unit = 'Satuan wajib dipilih.';
     if (!costInput.trim()) nextErrors.cost = 'Harga beli wajib diisi.';
     else if (!Number.isSafeInteger(cost) || cost <= 0) nextErrors.cost = 'Masukkan harga beli berupa angka lebih dari 0.';
     if (!priceInput.trim()) nextErrors.price = 'Harga jual wajib diisi.';
@@ -408,6 +439,9 @@ export function ProductModal({
   const restockMode = !isEdit && !!found;
   const foundBatches = found ? [...found.batches].sort((a, b) => a.expiredDate.localeCompare(b.expiredDate)) : [];
   const qtyAfter = found ? getTotalStock(found) + (Number(restockQty) || 0) : 0;
+
+  const catIdx = isEdit ? 1 : 2;
+  const unitIdx = isEdit ? 2 : 3;
 
   return (
     <ModalShell
@@ -611,12 +645,39 @@ export function ProductModal({
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Kategori *">
-                <input ref={(el) => { fieldRefs.current[isEdit ? 1 : 2] = el; }} className={inputClass('category')} list="kategori-list" value={category} maxLength={60} aria-invalid={!!fieldErrors.category} aria-describedby={fieldErrors.category ? 'category-error' : undefined} onKeyDown={(e) => handleEnter(isEdit ? 1 : 2, e)} onChange={(e) => { setCategory(e.target.value); clearFieldError('category'); }} placeholder="Beras & Biji" />
+                <CreatableSelect
+                  buttonRef={(el) => { fieldRefs.current[catIdx] = el; }}
+                  value={category}
+                  onChange={(v) => { setCategory(v); clearFieldError('category'); }}
+                  options={categoryOptions}
+                  customOptions={catOpts.custom}
+                  onCreate={catOpts.add}
+                  onRemoveCustom={catOpts.remove}
+                  placeholder="Pilih kategori"
+                  createLabel="kategori"
+                  maxLength={60}
+                  invalid={!!fieldErrors.category}
+                  describedBy={fieldErrors.category ? 'category-error' : undefined}
+                  onPicked={() => window.setTimeout(() => focusField(catIdx + 1), 0)}
+                />
                 {fieldMessage('category')}
-                <datalist id="kategori-list">{categories.map((c) => <option key={c} value={c} />)}</datalist>
               </Field>
               <Field label="Satuan *">
-                <input ref={(el) => { fieldRefs.current[isEdit ? 2 : 3] = el; }} className={inputClass('unit')} value={unit} maxLength={20} aria-invalid={!!fieldErrors.unit} aria-describedby={fieldErrors.unit ? 'unit-error' : undefined} onKeyDown={(e) => handleEnter(isEdit ? 2 : 3, e)} onChange={(e) => { setUnit(e.target.value); clearFieldError('unit'); }} placeholder="Pcs / Kg / Dus" />
+                <CreatableSelect
+                  buttonRef={(el) => { fieldRefs.current[unitIdx] = el; }}
+                  value={unit}
+                  onChange={(v) => { setUnit(v); clearFieldError('unit'); }}
+                  options={unitOptions}
+                  customOptions={unitOpts.custom}
+                  onCreate={unitOpts.add}
+                  onRemoveCustom={unitOpts.remove}
+                  placeholder="Pilih satuan"
+                  createLabel="satuan"
+                  maxLength={20}
+                  invalid={!!fieldErrors.unit}
+                  describedBy={fieldErrors.unit ? 'unit-error' : undefined}
+                  onPicked={() => window.setTimeout(() => focusField(unitIdx + 1), 0)}
+                />
                 {fieldMessage('unit')}
               </Field>
             </div>
